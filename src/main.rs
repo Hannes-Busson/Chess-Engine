@@ -46,3 +46,41 @@ impl Bitboard {
         println!();
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(usize)]
+pub enum Color {
+    White = 0,
+    Black = 1,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(usize)]
+pub enum PieceType {
+    Pawn = 0,
+    Knight = 1,
+    Bishop = 2,
+    Rock = 3,
+    Queen = 4,
+    King = 5,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Position {
+    pub pieces: [Bitboard; 12],
+    pub side_to_move: Color,
+    pub en_passant: u8,
+    pub castling: u8,
+}
+
+impl Position {
+    pub fn get_piece_bitboard(&self, color: Color, piece: PieceType) -> &Bitboard {
+        let index = (color as usize * 6) + (piece as usize);
+        &self.pieces[index]
+    }
+
+    pub fn get_piece_bitboard_mut(&mut self, color: Color, piece: PieceType) -> &mut Bitboard {
+        let index = (color as usize * 6) + (piece as usize);
+        &mut self.pieces[index]
+    }
+}
