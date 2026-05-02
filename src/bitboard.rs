@@ -7,15 +7,15 @@ impl Bitboard {
     }
 
     pub fn get_bit(&self, square: u8) -> bool {
-        (self.0 >> square) & 1 == 1
+        (self.0 >> square) & 1u64 == 1u64
     }
 
     pub fn set_bit(&mut self, square: u8) {
-        self.0 = self.0 | 1 << square;
+        self.0 = self.0 | 1u64 << square;
     }
 
     pub fn clear_bit(&mut self, square: u8) {
-        self.0 = self.0 & !(1 << square);
+        self.0 = self.0 & !(1u64 << square);
     }
 
     pub fn pop_lsb(&mut self) -> u8 {

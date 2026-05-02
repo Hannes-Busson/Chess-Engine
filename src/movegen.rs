@@ -12,13 +12,13 @@ impl Move {
         Move { value }
     }
     pub fn from(&self) -> u8 {
-        (self.value & 0x3F) as u8
+        (self.value & 0x3Fu16) as u8
     }
     pub fn to(&self) -> u8 {
-        ((self.value >> 6) & 0x3F) as u8
+        ((self.value >> 6) & 0x3Fu16) as u8
     }
     pub fn flags(&self) -> u8 {
-        ((self.value >> 12) & 0xF) as u8
+        ((self.value >> 12) & 0xFu16) as u8
     }
 }
 
