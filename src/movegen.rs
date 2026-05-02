@@ -64,6 +64,20 @@ const fn pawn_attacks_u64(sq: u8, white: bool) -> u64 {
     }
 }
 
+const fn king_attacks_u64(sq: u8) -> u64 {
+    let bb = 1u64 << sq;
+    let not_a = !0x0101010101010101u64;
+    let not_h = !0x8080808080808080u64;
+    (bb << 8)
+        | (bb >> 8)
+        | ((bb & not_a) << 7)
+        | ((bb & not_a) >> 1)
+        | ((bb & not_a) >> 9)
+        | ((bb & not_h) << 9)
+        | ((bb & not_h) << 1)
+        | ((bb & not_h) >> 7)
+}
+
 const KNIGHT_ATTACKS: [Bitboard; 64] = {
     let mut table = [Bitboard(0); 64];
     let mut sq = 0u8;
@@ -85,6 +99,16 @@ const PAWN_ATTACKS: [[Bitboard; 64]; 2] = {
     table
 };
 
+const KING_ATTACKS: [Bitboard; 64] = {
+    let mut table = [Bitboard(0); 64];
+    let mut sq = 0u8;
+    while sq < 64 {
+        table[sq as usize] = Bitboard(king_attacks_u64(sq));
+        sq += 1;
+    }
+    table
+};
+
 pub struct MoveGen;
 
 impl MoveGen {
@@ -94,5 +118,9 @@ impl MoveGen {
 
     pub fn pawn_attacks(square: u8, color: Color) -> Bitboard {
         PAWN_ATTACKS[color as usize][square as usize]
+    }
+
+    pub fn king_attacks(square: u8) -> Bitboard {
+        KING_ATTACKS[square as usize]
     }
 }
