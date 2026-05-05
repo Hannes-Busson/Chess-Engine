@@ -1,5 +1,6 @@
-use crate::bitboard::Bitboard;
-use crate::position::Color;
+use crate::bitboard::{self, Bitboard};
+use crate::masks::Files;
+use crate::position::{Color, PieceType, Position};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Move {
@@ -122,5 +123,118 @@ impl MoveGen {
 
     pub fn king_attacks(square: u8) -> Bitboard {
         KING_ATTACKS[square as usize]
+    }
+
+    pub fn bishop_attacks(square: u8, occupancy: Bitboard) -> Bitboard {
+        let mut position = Bitboard(0);
+        position.set_bit(square);
+        let mut moveable_position = position;
+        let mut result = Bitboard(0);
+        loop {
+            moveable_position = (moveable_position & !Files::FILE_H) << 9;
+            result = result | moveable_position;
+            if (moveable_position & occupancy).0 != 0 {
+                break;
+            }
+            if moveable_position.0 == 0 {
+                break;
+            }
+        }
+        moveable_position = position;
+        loop {
+            moveable_position = (moveable_position & !Files::FILE_H) >> 7;
+            result = result | moveable_position;
+            if (moveable_position & occupancy).0 != 0 {
+                break;
+            }
+            if moveable_position.0 == 0 {
+                break;
+            }
+        }
+        moveable_position = position;
+        loop {
+            moveable_position = (moveable_position & !Files::FILE_A) >> 9;
+            result = result | moveable_position;
+            if (moveable_position & occupancy).0 != 0 {
+                break;
+            }
+            if moveable_position.0 == 0 {
+                break;
+            }
+        }
+        moveable_position = position;
+        loop {
+            moveable_position = (moveable_position & !Files::FILE_A) << 7;
+            result = result | moveable_position;
+            if (moveable_position & occupancy).0 != 0 {
+                break;
+            }
+            if moveable_position.0 == 0 {
+                break;
+            }
+        }
+        result
+    }
+
+    pub fn rock_attacks(square: u8, occupancy: Bitboard) -> Bitboard {
+        let mut position = Bitboard(0);
+        position.set_bit(square);
+        let mut moveable_position = position;
+        let mut result = Bitboard(0);
+        loop {
+            moveable_position = moveable_position << 8;
+            result = result | moveable_position;
+            if (moveable_position & occupancy).0 != 0 {
+                break;
+            }
+            if moveable_position.0 == 0 {
+                break;
+            }
+        }
+        moveable_position = position;
+        loop {
+            moveable_position = (moveable_position & !Files::FILE_H) << 1;
+            result = result | moveable_position;
+            if (moveable_position & occupancy).0 != 0 {
+                break;
+            }
+            if moveable_position.0 == 0 {
+                break;
+            }
+        }
+        moveable_position = position;
+        loop {
+            moveable_position = moveable_position >> 8;
+            result = result | moveable_position;
+            if (moveable_position & occupancy).0 != 0 {
+                break;
+            }
+            if moveable_position.0 == 0 {
+                break;
+            }
+        }
+        moveable_position = position;
+        loop {
+            moveable_position = (moveable_position & !Files::FILE_A) >> 1;
+            result = result | moveable_position;
+            if (moveable_position & occupancy).0 != 0 {
+                break;
+            }
+            if moveable_position.0 == 0 {
+                break;
+            }
+        }
+        result
+    }
+
+    pub fn queen_attacks(square: u8, occupancy: Bitboard) -> Bitboard {
+        MoveGen::bishop_attacks(square, occupancy) | MoveGen::rock_attacks(square, occupancy)
+    }
+
+    pub fn generate_moves(position: &Position) -> Vec<Move> {
+        let mut result: Vec<Move>;
+        let position = position.get_piece_bitboard_mut(Color::White, PieceType::Knight);
+
+        result
     }
 }
