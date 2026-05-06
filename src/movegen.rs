@@ -1,6 +1,7 @@
 use crate::bitboard::{self, Bitboard};
 use crate::masks::Files;
-use crate::position::{Color, PieceType, Position};
+use crate::masks::Ranks;
+use crate::position::{self, Color, PieceType, Position};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Move {
@@ -36,6 +37,10 @@ impl MoveFlags {
     pub const BISHOP_PROMOTION: u8 = 9;
     pub const ROOK_PROMOTION: u8 = 10;
     pub const QUEEN_PROMOTION: u8 = 11;
+    pub const KNIGHT_PROMOTION_CAPTURE: u8 = 12;
+    pub const BISHOP_PROMOTION_CAPTURE: u8 = 13;
+    pub const ROOK_PROMOTION_CAPTURE: u8 = 14;
+    pub const QUEEN_PROMOTION_CAPTURE: u8 = 15;
 }
 
 const fn knight_attacks_u64(sq: u8) -> u64 {
@@ -332,20 +337,58 @@ impl MoveGen {
             }
         }
         // pawns
+        let ep_bb = if position.en_passant != 64 {
+            let mut bb = Bitboard(0);
+            bb.set_bit(position.en_passant);
+            bb
+        } else {
+            Bitboard(0)
+        };
+        let promotion_rank = if color == Color::White {
+            Ranks::RANK_8
+        } else {
+            Ranks::RANK_1
+        };
         let mut pawns = *position.get_piece_bitboard(color, PieceType::Pawn);
         while !pawns.is_empty() {
             let from = pawns.pop_lsb();
-            let mut attacks = MoveGen::pawn_attacks(from, color) & enemy_pieces;
+            let mut attacks = MoveGen::pawn_attacks(from, color) & (enemy_pieces | ep_bb);
             let mut moves = MoveGen::generate_pawn_moves(from, all_pieces, color);
             while !attacks.is_empty() {
                 let to = attacks.pop_lsb();
-                result.push(Move::new(from, to, MoveFlags::CAPTURE));
+                if ep_bb.0 != 0 && to == position.en_passant {
+                    result.push(Move::new(from, to, MoveFlags::EN_PASSANT));
+                } else {
+                    if promotion_rank.get_bit(to) {
+                        result.push(Move::new(from, to, MoveFlags::KNIGHT_PROMOTION_CAPTURE));
+                        result.push(Move::new(from, to, MoveFlags::BISHOP_PROMOTION_CAPTURE));
+                        result.push(Move::new(from, to, MoveFlags::ROOK_PROMOTION_CAPTURE));
+                        result.push(Move::new(from, to, MoveFlags::QUEEN_PROMOTION_CAPTURE));
+                    } else {
+                        result.push(Move::new(from, to, MoveFlags::CAPTURE));
+                    }
+                }
             }
             while !moves.is_empty() {
                 let to = moves.pop_lsb();
-                result.push(Move::new(from, to, MoveFlags::QUIET));
+                if promotion_rank.get_bit(to) {
+                    result.push(Move::new(from, to, MoveFlags::KNIGHT_PROMOTION));
+                    result.push(Move::new(from, to, MoveFlags::BISHOP_PROMOTION));
+                    result.push(Move::new(from, to, MoveFlags::ROOK_PROMOTION));
+                    result.push(Move::new(from, to, MoveFlags::QUEEN_PROMOTION));
+                } else {
+                    result.push(Move::new(from, to, MoveFlags::QUIET));
+                }
             }
         }
         result
+    }
+
+    pub fn is_attacked(square: u8, position: &Position) -> bool {
+        let mut result = Bitboard(0);
+        let occupancy = position.occupancy();
+        let color = position.opponent();
+
+        result.get_bit(square)
     }
 }

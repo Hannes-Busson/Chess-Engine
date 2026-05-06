@@ -101,4 +101,11 @@ impl Position {
         }
         value
     }
+
+    pub fn opponent(self) -> Color {
+        match self.side_to_move {
+            Color::White => Color::Black,
+            Color::Black => Color::White,
+        }
+    }
 }
