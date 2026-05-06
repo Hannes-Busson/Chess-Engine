@@ -130,6 +130,7 @@ impl MoveGen {
         position.set_bit(square);
         let mut moveable_position = position;
         let mut result = Bitboard(0);
+        // NE
         loop {
             moveable_position = (moveable_position & !Files::FILE_H) << 9;
             result = result | moveable_position;
@@ -141,6 +142,7 @@ impl MoveGen {
             }
         }
         moveable_position = position;
+        // SE
         loop {
             moveable_position = (moveable_position & !Files::FILE_H) >> 7;
             result = result | moveable_position;
@@ -152,6 +154,7 @@ impl MoveGen {
             }
         }
         moveable_position = position;
+        // SW
         loop {
             moveable_position = (moveable_position & !Files::FILE_A) >> 9;
             result = result | moveable_position;
@@ -163,6 +166,7 @@ impl MoveGen {
             }
         }
         moveable_position = position;
+        // NW
         loop {
             moveable_position = (moveable_position & !Files::FILE_A) << 7;
             result = result | moveable_position;
@@ -181,6 +185,7 @@ impl MoveGen {
         position.set_bit(square);
         let mut moveable_position = position;
         let mut result = Bitboard(0);
+        // N
         loop {
             moveable_position = moveable_position << 8;
             result = result | moveable_position;
@@ -192,6 +197,7 @@ impl MoveGen {
             }
         }
         moveable_position = position;
+        // E
         loop {
             moveable_position = (moveable_position & !Files::FILE_H) << 1;
             result = result | moveable_position;
@@ -203,6 +209,7 @@ impl MoveGen {
             }
         }
         moveable_position = position;
+        // S
         loop {
             moveable_position = moveable_position >> 8;
             result = result | moveable_position;
@@ -214,6 +221,7 @@ impl MoveGen {
             }
         }
         moveable_position = position;
+        // W
         loop {
             moveable_position = (moveable_position & !Files::FILE_A) >> 1;
             result = result | moveable_position;
@@ -231,10 +239,69 @@ impl MoveGen {
         MoveGen::bishop_attacks(square, occupancy) | MoveGen::rock_attacks(square, occupancy)
     }
 
-    pub fn generate_moves(position: &Position) -> Vec<Move> {
-        let mut result: Vec<Move>;
-        let position = position.get_piece_bitboard_mut(Color::White, PieceType::Knight);
-
+    pub fn generate_moves(position: Position) -> Vec<Move> {
+        let mut result: Vec<Move> = Vec::new();
+        let color = position.side_to_move;
+        let own_pieces = position.occupancy_for(color);
+        let all_pieces = position.occupancy();
+        // knights
+        let mut knights = *position.get_piece_bitboard(color, PieceType::Knight);
+        while !knights.is_empty() {
+            let from = knights.pop_lsb();
+            let mut attacks = MoveGen::knight_attacks(from) & !own_pieces;
+            while !attacks.is_empty() {
+                let to = attacks.pop_lsb();
+                result.push(Move::new(from, to, MoveFlags::QUIET));
+            }
+        }
+        // king
+        let mut king = *position.get_piece_bitboard(color, PieceType::King);
+        let from = king.pop_lsb();
+        let mut attacks = MoveGen::king_attacks(from) & !own_pieces;
+        while !attacks.is_empty() {
+            let to = attacks.pop_lsb();
+            result.push(Move::new(from, to, MoveFlags::QUIET));
+        }
+        // bishops
+        let mut bishops = *position.get_piece_bitboard(color, PieceType::Bishop);
+        while !bishops.is_empty() {
+            let from = bishops.pop_lsb();
+            let mut attacks = MoveGen::bishop_attacks(from, all_pieces) & !own_pieces;
+            while !attacks.is_empty() {
+                let to = attacks.pop_lsb();
+                result.push(Move::new(from, to, MoveFlags::QUIET));
+            }
+        }
+        // rooks
+        let mut rooks = *position.get_piece_bitboard(color, PieceType::Rock);
+        while !rooks.is_empty() {
+            let from = rooks.pop_lsb();
+            let mut attacks = MoveGen::rock_attacks(from, all_pieces) & !own_pieces;
+            while !attacks.is_empty() {
+                let to = attacks.pop_lsb();
+                result.push(Move::new(from, to, MoveFlags::QUIET));
+            }
+        }
+        // queens
+        let mut queens = *position.get_piece_bitboard(color, PieceType::Queen);
+        while !queens.is_empty() {
+            let from = queens.pop_lsb();
+            let mut attacks = MoveGen::queen_attacks(from, all_pieces) & !own_pieces;
+            while !attacks.is_empty() {
+                let to = attacks.pop_lsb();
+                result.push(Move::new(from, to, MoveFlags::QUIET));
+            }
+        }
+        // pawns
+        let mut pawns = *position.get_piece_bitboard(color, PieceType::Pawn);
+        while !pawns.is_empty() {
+            let from = pawns.pop_lsb();
+            let mut attacks = MoveGen::pawn_attacks(from, color) & !own_pieces;
+            while !attacks.is_empty() {
+                let to = attacks.pop_lsb();
+                result.push(Move::new(from, to, MoveFlags::QUIET));
+            }
+        }
         result
     }
 }
