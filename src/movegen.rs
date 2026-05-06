@@ -125,6 +125,24 @@ impl MoveGen {
         KING_ATTACKS[square as usize]
     }
 
+    pub fn generate_pawn_moves(square: u8, occupancy: Bitboard, color: Color) -> Bitboard {
+        let mut result = Bitboard(0);
+        let mut position = Bitboard(0);
+        position.set_bit(square);
+        if color == Color::White {
+            result = position << 8 & !occupancy;
+            if square > 7 && square < 16 {
+                result = result | (position << 8 & !occupancy) << 8 & !occupancy;
+            }
+        } else {
+            result = position >> 8 & !occupancy;
+            if square > 47 && square < 56 {
+                result = result | (position >> 8 & !occupancy) >> 8 & !occupancy;
+            }
+        }
+        result
+    }
+
     pub fn bishop_attacks(square: u8, occupancy: Bitboard) -> Bitboard {
         let mut position = Bitboard(0);
         position.set_bit(square);
@@ -244,6 +262,7 @@ impl MoveGen {
         let color = position.side_to_move;
         let own_pieces = position.occupancy_for(color);
         let all_pieces = position.occupancy();
+        let enemy_pieces = all_pieces & !own_pieces;
         // knights
         let mut knights = *position.get_piece_bitboard(color, PieceType::Knight);
         while !knights.is_empty() {
@@ -251,7 +270,11 @@ impl MoveGen {
             let mut attacks = MoveGen::knight_attacks(from) & !own_pieces;
             while !attacks.is_empty() {
                 let to = attacks.pop_lsb();
-                result.push(Move::new(from, to, MoveFlags::QUIET));
+                if all_pieces.get_bit(to) {
+                    result.push(Move::new(from, to, MoveFlags::CAPTURE));
+                } else {
+                    result.push(Move::new(from, to, MoveFlags::QUIET));
+                }
             }
         }
         // king
@@ -260,7 +283,11 @@ impl MoveGen {
         let mut attacks = MoveGen::king_attacks(from) & !own_pieces;
         while !attacks.is_empty() {
             let to = attacks.pop_lsb();
-            result.push(Move::new(from, to, MoveFlags::QUIET));
+            if all_pieces.get_bit(to) {
+                result.push(Move::new(from, to, MoveFlags::CAPTURE));
+            } else {
+                result.push(Move::new(from, to, MoveFlags::QUIET));
+            }
         }
         // bishops
         let mut bishops = *position.get_piece_bitboard(color, PieceType::Bishop);
@@ -269,7 +296,11 @@ impl MoveGen {
             let mut attacks = MoveGen::bishop_attacks(from, all_pieces) & !own_pieces;
             while !attacks.is_empty() {
                 let to = attacks.pop_lsb();
-                result.push(Move::new(from, to, MoveFlags::QUIET));
+                if all_pieces.get_bit(to) {
+                    result.push(Move::new(from, to, MoveFlags::CAPTURE));
+                } else {
+                    result.push(Move::new(from, to, MoveFlags::QUIET));
+                }
             }
         }
         // rooks
@@ -279,7 +310,11 @@ impl MoveGen {
             let mut attacks = MoveGen::rock_attacks(from, all_pieces) & !own_pieces;
             while !attacks.is_empty() {
                 let to = attacks.pop_lsb();
-                result.push(Move::new(from, to, MoveFlags::QUIET));
+                if all_pieces.get_bit(to) {
+                    result.push(Move::new(from, to, MoveFlags::CAPTURE));
+                } else {
+                    result.push(Move::new(from, to, MoveFlags::QUIET));
+                }
             }
         }
         // queens
@@ -289,16 +324,25 @@ impl MoveGen {
             let mut attacks = MoveGen::queen_attacks(from, all_pieces) & !own_pieces;
             while !attacks.is_empty() {
                 let to = attacks.pop_lsb();
-                result.push(Move::new(from, to, MoveFlags::QUIET));
+                if all_pieces.get_bit(to) {
+                    result.push(Move::new(from, to, MoveFlags::CAPTURE));
+                } else {
+                    result.push(Move::new(from, to, MoveFlags::QUIET));
+                }
             }
         }
         // pawns
         let mut pawns = *position.get_piece_bitboard(color, PieceType::Pawn);
         while !pawns.is_empty() {
             let from = pawns.pop_lsb();
-            let mut attacks = MoveGen::pawn_attacks(from, color) & !own_pieces;
+            let mut attacks = MoveGen::pawn_attacks(from, color) & enemy_pieces;
+            let mut moves = MoveGen::generate_pawn_moves(from, all_pieces, color);
             while !attacks.is_empty() {
                 let to = attacks.pop_lsb();
+                result.push(Move::new(from, to, MoveFlags::CAPTURE));
+            }
+            while !moves.is_empty() {
+                let to = moves.pop_lsb();
                 result.push(Move::new(from, to, MoveFlags::QUIET));
             }
         }
