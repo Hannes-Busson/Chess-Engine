@@ -1,4 +1,6 @@
 use crate::bitboard::Bitboard;
+use crate::movegen::Move;
+use std::result;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(usize)]
@@ -13,7 +15,7 @@ pub enum PieceType {
     Pawn = 0,
     Knight = 1,
     Bishop = 2,
-    Rock = 3,
+    Rook = 3,
     Queen = 4,
     King = 5,
 }
@@ -61,8 +63,8 @@ impl Position {
             Bitboard(0x0000000000000024);
         pieces[Color::Black as usize * 6 + PieceType::Bishop as usize] =
             Bitboard(0x2400000000000000);
-        pieces[Color::White as usize * 6 + PieceType::Rock as usize] = Bitboard(0x0000000000000081);
-        pieces[Color::Black as usize * 6 + PieceType::Rock as usize] = Bitboard(0x8100000000000000);
+        pieces[Color::White as usize * 6 + PieceType::Rook as usize] = Bitboard(0x0000000000000081);
+        pieces[Color::Black as usize * 6 + PieceType::Rook as usize] = Bitboard(0x8100000000000000);
         pieces[Color::White as usize * 6 + PieceType::Queen as usize] =
             Bitboard(0x0000000000000008);
         pieces[Color::Black as usize * 6 + PieceType::Queen as usize] =
@@ -107,5 +109,10 @@ impl Position {
             Color::White => Color::Black,
             Color::Black => Color::White,
         }
+    }
+
+    pub fn make_move(self, to_move: Move) -> Self {
+        let mut result = self;
+        result
     }
 }
