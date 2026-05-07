@@ -1,7 +1,7 @@
 use crate::bitboard::{self, Bitboard};
 use crate::masks::Files;
 use crate::masks::Ranks;
-use crate::position::{self, Color, PieceType, Position};
+use crate::position::{self, CastlingRights, Color, PieceType, Position};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Move {
@@ -203,7 +203,7 @@ impl MoveGen {
         result
     }
 
-    pub fn rock_attacks(square: u8, occupancy: Bitboard) -> Bitboard {
+    pub fn rook_attacks(square: u8, occupancy: Bitboard) -> Bitboard {
         let mut position = Bitboard(0);
         position.set_bit(square);
         let mut moveable_position = position;
@@ -259,7 +259,7 @@ impl MoveGen {
     }
 
     pub fn queen_attacks(square: u8, occupancy: Bitboard) -> Bitboard {
-        MoveGen::bishop_attacks(square, occupancy) | MoveGen::rock_attacks(square, occupancy)
+        MoveGen::bishop_attacks(square, occupancy) | MoveGen::rook_attacks(square, occupancy)
     }
 
     pub fn generate_moves(position: Position) -> Vec<Move> {
@@ -294,6 +294,52 @@ impl MoveGen {
                 result.push(Move::new(from, to, MoveFlags::QUIET));
             }
         }
+        // white
+        if color == Color::White {
+            // kingside castle
+            if position.castling & CastlingRights::WK != 0
+                && !all_pieces.get_bit(5)
+                && !all_pieces.get_bit(6)
+                && !MoveGen::is_attacked(4, &position)
+                && !MoveGen::is_attacked(5, &position)
+                && !MoveGen::is_attacked(6, &position)
+            {
+                result.push(Move::new(4, 6, MoveFlags::KINGSIDE_CASTLE));
+            }
+            // queenside castle
+            if position.castling & CastlingRights::WQ != 0
+                && !all_pieces.get_bit(1)
+                && !all_pieces.get_bit(2)
+                && !all_pieces.get_bit(3)
+                && !MoveGen::is_attacked(2, &position)
+                && !MoveGen::is_attacked(3, &position)
+                && !MoveGen::is_attacked(4, &position)
+            {
+                result.push(Move::new(4, 2, MoveFlags::QUEENSIDE_CASTLE));
+            }
+        } else {
+            // kingside castle
+            if position.castling & CastlingRights::BK != 0
+                && !all_pieces.get_bit(61)
+                && !all_pieces.get_bit(62)
+                && !MoveGen::is_attacked(60, &position)
+                && !MoveGen::is_attacked(61, &position)
+                && !MoveGen::is_attacked(62, &position)
+            {
+                result.push(Move::new(60, 62, MoveFlags::KINGSIDE_CASTLE));
+            }
+            // queenside castle
+            if position.castling & CastlingRights::BQ != 0
+                && !all_pieces.get_bit(57)
+                && !all_pieces.get_bit(58)
+                && !all_pieces.get_bit(59)
+                && !MoveGen::is_attacked(58, &position)
+                && !MoveGen::is_attacked(59, &position)
+                && !MoveGen::is_attacked(60, &position)
+            {
+                result.push(Move::new(60, 58, MoveFlags::QUEENSIDE_CASTLE));
+            }
+        }
         // bishops
         let mut bishops = *position.get_piece_bitboard(color, PieceType::Bishop);
         while !bishops.is_empty() {
@@ -309,10 +355,10 @@ impl MoveGen {
             }
         }
         // rooks
-        let mut rooks = *position.get_piece_bitboard(color, PieceType::Rock);
+        let mut rooks = *position.get_piece_bitboard(color, PieceType::Rook);
         while !rooks.is_empty() {
             let from = rooks.pop_lsb();
-            let mut attacks = MoveGen::rock_attacks(from, all_pieces) & !own_pieces;
+            let mut attacks = MoveGen::rook_attacks(from, all_pieces) & !own_pieces;
             while !attacks.is_empty() {
                 let to = attacks.pop_lsb();
                 if all_pieces.get_bit(to) {
@@ -385,10 +431,24 @@ impl MoveGen {
     }
 
     pub fn is_attacked(square: u8, position: &Position) -> bool {
-        let mut result = Bitboard(0);
         let occupancy = position.occupancy();
-        let color = position.opponent();
-
-        result.get_bit(square)
+        let color = position.side_to_move;
+        let opponent_color = position.opponent();
+        let diagonals = MoveGen::bishop_attacks(square, occupancy);
+        let straights = MoveGen::rook_attacks(square, occupancy);
+        let pawns_attacks = MoveGen::pawn_attacks(square, color);
+        let king_attacks = MoveGen::king_attacks(square);
+        let knight_attacks = MoveGen::knight_attacks(square);
+        let enemy_pawns = *position.get_piece_bitboard(opponent_color, PieceType::Pawn);
+        let enemy_king = *position.get_piece_bitboard(opponent_color, PieceType::King);
+        let enemy_knight = *position.get_piece_bitboard(opponent_color, PieceType::Knight);
+        let enemy_bishops = *position.get_piece_bitboard(opponent_color, PieceType::Bishop);
+        let enemy_rooks = *position.get_piece_bitboard(opponent_color, PieceType::Rook);
+        let enemy_queens = *position.get_piece_bitboard(opponent_color, PieceType::Queen);
+        (diagonals & (enemy_bishops | enemy_queens)).0 != 0
+            || (straights & (enemy_rooks | enemy_queens)).0 != 0
+            || (pawns_attacks & enemy_pawns).0 != 0
+            || (king_attacks & enemy_king).0 != 0
+            || (knight_attacks & enemy_knight).0 != 0
     }
 }
