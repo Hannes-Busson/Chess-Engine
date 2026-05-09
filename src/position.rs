@@ -1,6 +1,7 @@
 use crate::bitboard::Bitboard;
 use crate::movegen::{Move, MoveFlags};
 use crate::position;
+use std::f32::consts::E;
 use std::iter::Enumerate;
 use std::result;
 
@@ -132,137 +133,85 @@ impl Position {
         let flag = to_move.flags();
         result.castling &= CASTLING_UPDATE[from as usize];
         let piece_idx = self.piece_on[from as usize] as usize;
-        let opponent_start = (1 - color as usize) * 6;
+        let opponent_idx = self.piece_on[to as usize] as usize;
         match flag {
-            MoveFlags::QUIET => 
+            MoveFlags::QUIET => {
+                result.pieces[piece_idx].clear_bit(from);
+                result.pieces[piece_idx].set_bit(to);
+            }
+            MoveFlags::CAPTURE => {
+                result.pieces[piece_idx].clear_bit(from);
+                result.pieces[opponent_idx].clear_bit(to);
+                result.pieces[piece_idx].set_bit(to);
+            }
+            MoveFlags::KNIGHT_PROMOTION => {
+                result.pieces[piece_idx].clear_bit(from);
+                result.pieces[(color as usize) * 6 + 1].set_bit(to);
+            }
+            MoveFlags::BISHOP_PROMOTION => {
+                result.pieces[piece_idx].clear_bit(from);
+                result.pieces[(color as usize) * 6 + 2].set_bit(to);
+            }
+            MoveFlags::ROOK_PROMOTION => {
+                result.pieces[piece_idx].clear_bit(from);
+                result.pieces[(color as usize) * 6 + 3].set_bit(to);
+            }
+            MoveFlags::QUEEN_PROMOTION => {
+                result.pieces[piece_idx].clear_bit(from);
+                result.pieces[(color as usize) * 6 + 4].set_bit(to);
+            }
+            MoveFlags::KNIGHT_PROMOTION_CAPTURE => {
+                result.pieces[piece_idx].clear_bit(from);
+                result.pieces[opponent_idx].clear_bit(to);
+                result.pieces[(color as usize) * 6 + 1].set_bit(to);
+            }
+            MoveFlags::BISHOP_PROMOTION_CAPTURE => {
+                result.pieces[piece_idx].clear_bit(from);
+                result.pieces[opponent_idx].clear_bit(to);
+                result.pieces[(color as usize) * 6 + 2].set_bit(to);
+            }
+            MoveFlags::ROOK_PROMOTION_CAPTURE => {
+                result.pieces[piece_idx].clear_bit(from);
+                result.pieces[opponent_idx].clear_bit(to);
+                result.pieces[(color as usize) * 6 + 3].set_bit(to);
+            }
+            MoveFlags::QUEEN_PROMOTION_CAPTURE => {
+                result.pieces[piece_idx].clear_bit(from);
+                result.pieces[opponent_idx].clear_bit(to);
+                result.pieces[(color as usize) * 6 + 4].set_bit(to);
+            }
+            MoveFlags::KINGSIDE_CASTLE => {
+                result.pieces[(color as usize * 6) + 5].clear_bit((color as u8) * 56 + 4);
+                result.pieces[(color as usize * 6) + 5].set_bit((color as u8) * 56 + 6);
+                result.pieces[(color as usize * 6) + 3].clear_bit((color as u8) * 56 + 7);
+                result.pieces[(color as usize * 6) + 3].set_bit((color as u8) * 56 + 5);
+                result.piece_on[(color as usize) * 56 + 7] = 64;
+                result.piece_on[(color as usize) * 56 + 5] = (color as u8 * 6) + 3;
+            }
+            MoveFlags::QUEENSIDE_CASTLE => {
+                result.pieces[(color as usize * 6) + 5].clear_bit((color as u8) * 56 + 4);
+                result.pieces[(color as usize * 6) + 5].set_bit((color as u8) * 56 + 2);
+                result.pieces[(color as usize * 6) + 3].clear_bit((color as u8) * 56 + 0);
+                result.pieces[(color as usize * 6) + 3].set_bit((color as u8) * 56 + 3);
+                result.piece_on[(color as usize) * 56 + 0] = 64;
+                result.piece_on[(color as usize) * 56 + 3] = (color as u8 * 6) + 3;
+            }
+            MoveFlags::EN_PASSANT => {
+                result.pieces[(color as usize) * 6 + 0].clear_bit(from);
+                result.pieces[(color as usize) * 6 + 6].clear_bit(to + (color as u8) * 16 - 8);
+                result.pieces[(color as usize) * 6 + 0].set_bit(to);
+                result.piece_on[to as usize + (color as usize) * 16 - 8] = 64;
+            }
+            MoveFlags::DOUBLE_PAWN_PUSH => {
+                result.pieces[piece_idx].clear_bit(from);
+                result.pieces[piece_idx].set_bit(to);
+                result.en_passant = from + 8 - (color as u8) * 16;
+            }
+            6_u8..=7_u8 | 16_u8..=u8::MAX => {}
         }
-        if color == Color::White {
-            if flag == MoveFlags::QUIET || flag == MoveFlags::CAPTURE {
-                self.quiet_or_capture_move(to_move, Color::White, PieceType::Pawn, &mut result);
-                self.quiet_or_capture_move(to_move, Color::White, PieceType::Knight, &mut result);
-                self.quiet_or_capture_move(to_move, Color::White, PieceType::Bishop, &mut result);
-                self.quiet_or_capture_move(to_move, Color::White, PieceType::Rook, &mut result);
-                self.quiet_or_capture_move(to_move, Color::White, PieceType::Queen, &mut result);
-                self.quiet_or_capture_move(to_move, Color::White, PieceType::King, &mut result);
-            }
-            if flag == MoveFlags::KNIGHT_PROMOTION || flag == MoveFlags::KNIGHT_PROMOTION_CAPTURE {
-                self.promotion_move(to_move, Color::White, PieceType::Knight, &mut result);
-            }
-            if flag == MoveFlags::BISHOP_PROMOTION || flag == MoveFlags::BISHOP_PROMOTION_CAPTURE {
-                self.promotion_move(to_move, Color::White, PieceType::Bishop, &mut result);
-            }
-            if flag == MoveFlags::ROOK_PROMOTION || flag == MoveFlags::ROOK_PROMOTION_CAPTURE {
-                self.promotion_move(to_move, Color::White, PieceType::Rook, &mut result);
-            }
-            if flag == MoveFlags::QUEEN_PROMOTION || flag == MoveFlags::QUEEN_PROMOTION_CAPTURE {
-                self.promotion_move(to_move, Color::White, PieceType::Queen, &mut result);
-            }
-            if flag == MoveFlags::KINGSIDE_CASTLE {
-                result.pieces[5].clear_bit(4);
-                result.pieces[5].set_bit(6);
-                result.pieces[3].clear_bit(7);
-                result.pieces[3].set_bit(5);
-            }
-            if flag == MoveFlags::QUEENSIDE_CASTLE {
-                result.pieces[5].clear_bit(4);
-                result.pieces[5].set_bit(2);
-                result.pieces[3].clear_bit(0);
-                result.pieces[3].set_bit(3);
-            }
-            if flag == MoveFlags::EN_PASSANT {
-                result.pieces[0].clear_bit(from);
-                result.pieces[6].clear_bit(to - 8);
-                result.pieces[0].set_bit(to);
-            }
-            if flag == MoveFlags::DOUBLE_PAWN_PUSH {
-                self.quiet_or_capture_move(to_move, Color::White, PieceType::Pawn, &mut result);
-                result.en_passant = from + 8;
-            }
-        } else {
-            if flag == MoveFlags::QUIET || flag == MoveFlags::CAPTURE {
-                self.quiet_or_capture_move(to_move, Color::Black, PieceType::Pawn, &mut result);
-                self.quiet_or_capture_move(to_move, Color::Black, PieceType::Knight, &mut result);
-                self.quiet_or_capture_move(to_move, Color::Black, PieceType::Bishop, &mut result);
-                self.quiet_or_capture_move(to_move, Color::Black, PieceType::Rook, &mut result);
-                self.quiet_or_capture_move(to_move, Color::Black, PieceType::Queen, &mut result);
-                self.quiet_or_capture_move(to_move, Color::Black, PieceType::King, &mut result);
-            }
-            if flag == MoveFlags::KNIGHT_PROMOTION || flag == MoveFlags::KNIGHT_PROMOTION_CAPTURE {
-                self.promotion_move(to_move, Color::Black, PieceType::Knight, &mut result);
-            }
-            if flag == MoveFlags::BISHOP_PROMOTION || flag == MoveFlags::BISHOP_PROMOTION_CAPTURE {
-                self.promotion_move(to_move, Color::Black, PieceType::Bishop, &mut result);
-            }
-            if flag == MoveFlags::ROOK_PROMOTION || flag == MoveFlags::ROOK_PROMOTION_CAPTURE {
-                self.promotion_move(to_move, Color::Black, PieceType::Rook, &mut result);
-            }
-            if flag == MoveFlags::QUEEN_PROMOTION || flag == MoveFlags::QUEEN_PROMOTION_CAPTURE {
-                self.promotion_move(to_move, Color::Black, PieceType::Queen, &mut result);
-            }
-            if flag == MoveFlags::KINGSIDE_CASTLE {
-                result.pieces[11].clear_bit(60);
-                result.pieces[11].set_bit(62);
-                result.pieces[9].clear_bit(63);
-                result.pieces[9].set_bit(61);
-            }
-            if flag == MoveFlags::QUEENSIDE_CASTLE {
-                result.pieces[11].clear_bit(60);
-                result.pieces[11].set_bit(58);
-                result.pieces[9].clear_bit(56);
-                result.pieces[9].set_bit(59);
-            }
-            if flag == MoveFlags::EN_PASSANT {
-                result.pieces[6].clear_bit(from);
-                result.pieces[0].clear_bit(to + 8);
-                result.pieces[6].set_bit(to);
-            }
-            if flag == MoveFlags::DOUBLE_PAWN_PUSH {
-                self.quiet_or_capture_move(to_move, Color::Black, PieceType::Pawn, &mut result);
-                result.en_passant = from - 8;
-            }
-        }
-
+        result.piece_on[from as usize] = 64;
+        result.piece_on[to as usize] = piece_idx as u8;
         result.side_to_move = self.opponent();
         result
-    }
-    pub fn quiet_or_capture_move(
-        &self,
-        to_move: Move,
-        color: Color,
-        piece: PieceType,
-        result: &mut Position,
-    ) {
-        let from = to_move.from();
-        let to = to_move.to();
-        let occupancy = self.get_piece_bitboard(color, piece);
-        if occupancy.get_bit(from) {
-            result.pieces[color as usize * 6 + piece as usize].clear_bit(from);
-            result.pieces[color as usize * 6 + piece as usize].set_bit(to);
-        }
-        if to_move.flags() == MoveFlags::CAPTURE {
-            for i in 0..6 {
-                result.pieces[(1 - color as usize) * 6 + i].clear_bit(to);
-            }
-        }
-    }
-    pub fn promotion_move(
-        &self,
-        to_move: Move,
-        color: Color,
-        piece: PieceType,
-        result: &mut Position,
-    ) {
-        let from = to_move.from();
-        let to = to_move.to();
-        let occupancy = self.get_piece_bitboard(color, PieceType::Pawn);
-        if occupancy.get_bit(from) {
-            result.pieces[color as usize * 6 + PieceType::Pawn as usize].clear_bit(from);
-            result.pieces[color as usize * 6 + piece as usize].set_bit(to);
-        }
-        if to_move.flags() >= MoveFlags::KNIGHT_PROMOTION_CAPTURE {
-            for i in 0..6 {
-                result.pieces[(1 - color as usize) * 6 + i].clear_bit(to);
-            }
-        }
     }
 }
