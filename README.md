@@ -1,1 +1,42 @@
-Learning rust by creating a chess engine. Please tell me if you can find performance optimization.
+# SAYA Chess Engine
+
+A chess engine written in Rust.
+
+## Requirements
+
+- [Rust](https://www.rust-lang.org/tools/install) (latest stable)
+
+## Setup
+
+Clone the repository:
+
+```
+git clone https://github.com/your-username/saya.git
+cd saya
+```
+
+Build the project:
+
+```
+cargo build --release
+```
+
+Run:
+
+```
+cargo run --release
+```
+
+## Development
+
+Run in debug mode:
+
+```
+cargo run
+```
+
+Run tests:
+
+```
+cargo test
+```
