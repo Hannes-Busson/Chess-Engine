@@ -11,7 +11,7 @@ A chess engine written in Rust.
 Clone the repository:
 
 ```
-git clone https://github.com/your-username/saya.git
+git clone https://github.com/Hannes-Busson/SAYA.git
 cd saya
 ```
 
