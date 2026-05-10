@@ -422,6 +422,8 @@ impl MoveGen {
                     result.push(Move::new(from, to, MoveFlags::BISHOP_PROMOTION));
                     result.push(Move::new(from, to, MoveFlags::ROOK_PROMOTION));
                     result.push(Move::new(from, to, MoveFlags::QUEEN_PROMOTION));
+                } else if to.abs_diff(from) == 16 {
+                    result.push(Move::new(from, to, MoveFlags::DOUBLE_PAWN_PUSH));
                 } else {
                     result.push(Move::new(from, to, MoveFlags::QUIET));
                 }

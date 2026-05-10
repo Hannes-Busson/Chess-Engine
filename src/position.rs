@@ -1,9 +1,5 @@
 use crate::bitboard::Bitboard;
 use crate::movegen::{Move, MoveFlags};
-use crate::position;
-use std::f32::consts::E;
-use std::iter::Enumerate;
-use std::result;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(usize)]
@@ -131,60 +127,83 @@ impl Position {
         let from = to_move.from();
         let to = to_move.to();
         let flag = to_move.flags();
-        result.castling &= CASTLING_UPDATE[from as usize];
         let piece_idx = self.piece_on[from as usize] as usize;
         let opponent_idx = self.piece_on[to as usize] as usize;
+        result.castling &= CASTLING_UPDATE[from as usize];
+        result.castling &= CASTLING_UPDATE[to as usize];
         match flag {
             MoveFlags::QUIET => {
                 result.pieces[piece_idx].clear_bit(from);
                 result.pieces[piece_idx].set_bit(to);
+                result.piece_on[from as usize] = 64;
+                result.piece_on[to as usize] = piece_idx as u8;
             }
             MoveFlags::CAPTURE => {
                 result.pieces[piece_idx].clear_bit(from);
                 result.pieces[opponent_idx].clear_bit(to);
                 result.pieces[piece_idx].set_bit(to);
+                result.piece_on[from as usize] = 64;
+                result.piece_on[to as usize] = piece_idx as u8;
             }
             MoveFlags::KNIGHT_PROMOTION => {
                 result.pieces[piece_idx].clear_bit(from);
                 result.pieces[(color as usize) * 6 + 1].set_bit(to);
+                result.piece_on[from as usize] = 64;
+                result.piece_on[to as usize] = (color as u8) * 6 + 1;
             }
             MoveFlags::BISHOP_PROMOTION => {
                 result.pieces[piece_idx].clear_bit(from);
                 result.pieces[(color as usize) * 6 + 2].set_bit(to);
+                result.piece_on[from as usize] = 64;
+                result.piece_on[to as usize] = (color as u8) * 6 + 2;
             }
             MoveFlags::ROOK_PROMOTION => {
                 result.pieces[piece_idx].clear_bit(from);
                 result.pieces[(color as usize) * 6 + 3].set_bit(to);
+                result.piece_on[from as usize] = 64;
+                result.piece_on[to as usize] = (color as u8) * 6 + 3;
             }
             MoveFlags::QUEEN_PROMOTION => {
                 result.pieces[piece_idx].clear_bit(from);
                 result.pieces[(color as usize) * 6 + 4].set_bit(to);
+                result.piece_on[from as usize] = 64;
+                result.piece_on[to as usize] = (color as u8) * 6 + 4;
             }
             MoveFlags::KNIGHT_PROMOTION_CAPTURE => {
                 result.pieces[piece_idx].clear_bit(from);
                 result.pieces[opponent_idx].clear_bit(to);
                 result.pieces[(color as usize) * 6 + 1].set_bit(to);
+                result.piece_on[from as usize] = 64;
+                result.piece_on[to as usize] = (color as u8) * 6 + 1;
             }
             MoveFlags::BISHOP_PROMOTION_CAPTURE => {
                 result.pieces[piece_idx].clear_bit(from);
                 result.pieces[opponent_idx].clear_bit(to);
                 result.pieces[(color as usize) * 6 + 2].set_bit(to);
+                result.piece_on[from as usize] = 64;
+                result.piece_on[to as usize] = (color as u8) * 6 + 2;
             }
             MoveFlags::ROOK_PROMOTION_CAPTURE => {
                 result.pieces[piece_idx].clear_bit(from);
                 result.pieces[opponent_idx].clear_bit(to);
                 result.pieces[(color as usize) * 6 + 3].set_bit(to);
+                result.piece_on[from as usize] = 64;
+                result.piece_on[to as usize] = (color as u8) * 6 + 3;
             }
             MoveFlags::QUEEN_PROMOTION_CAPTURE => {
                 result.pieces[piece_idx].clear_bit(from);
                 result.pieces[opponent_idx].clear_bit(to);
                 result.pieces[(color as usize) * 6 + 4].set_bit(to);
+                result.piece_on[from as usize] = 64;
+                result.piece_on[to as usize] = (color as u8) * 6 + 4;
             }
             MoveFlags::KINGSIDE_CASTLE => {
                 result.pieces[(color as usize * 6) + 5].clear_bit((color as u8) * 56 + 4);
                 result.pieces[(color as usize * 6) + 5].set_bit((color as u8) * 56 + 6);
                 result.pieces[(color as usize * 6) + 3].clear_bit((color as u8) * 56 + 7);
                 result.pieces[(color as usize * 6) + 3].set_bit((color as u8) * 56 + 5);
+                result.piece_on[from as usize] = 64;
+                result.piece_on[to as usize] = piece_idx as u8;
                 result.piece_on[(color as usize) * 56 + 7] = 64;
                 result.piece_on[(color as usize) * 56 + 5] = (color as u8 * 6) + 3;
             }
@@ -193,24 +212,29 @@ impl Position {
                 result.pieces[(color as usize * 6) + 5].set_bit((color as u8) * 56 + 2);
                 result.pieces[(color as usize * 6) + 3].clear_bit((color as u8) * 56 + 0);
                 result.pieces[(color as usize * 6) + 3].set_bit((color as u8) * 56 + 3);
+                result.piece_on[from as usize] = 64;
+                result.piece_on[to as usize] = piece_idx as u8;
                 result.piece_on[(color as usize) * 56 + 0] = 64;
                 result.piece_on[(color as usize) * 56 + 3] = (color as u8 * 6) + 3;
             }
             MoveFlags::EN_PASSANT => {
                 result.pieces[(color as usize) * 6 + 0].clear_bit(from);
-                result.pieces[(color as usize) * 6 + 6].clear_bit(to + (color as u8) * 16 - 8);
+                result.pieces[(1 - (color as usize)) * 6 + 0]
+                    .clear_bit(to + (color as u8) * 16 - 8);
                 result.pieces[(color as usize) * 6 + 0].set_bit(to);
+                result.piece_on[from as usize] = 64;
+                result.piece_on[to as usize] = piece_idx as u8;
                 result.piece_on[to as usize + (color as usize) * 16 - 8] = 64;
             }
             MoveFlags::DOUBLE_PAWN_PUSH => {
                 result.pieces[piece_idx].clear_bit(from);
                 result.pieces[piece_idx].set_bit(to);
                 result.en_passant = from + 8 - (color as u8) * 16;
+                result.piece_on[from as usize] = 64;
+                result.piece_on[to as usize] = piece_idx as u8;
             }
             6_u8..=7_u8 | 16_u8..=u8::MAX => {}
         }
-        result.piece_on[from as usize] = 64;
-        result.piece_on[to as usize] = piece_idx as u8;
         result.side_to_move = self.opponent();
         result
     }
