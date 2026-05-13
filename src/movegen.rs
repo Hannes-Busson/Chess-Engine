@@ -84,6 +84,108 @@ const fn king_attacks_u64(sq: u8) -> u64 {
         | ((bb & not_h) >> 7)
 }
 
+pub fn bishop_mask(sq: u8) -> Bitboard {
+    let mut position = Bitboard(0);
+    position.set_bit(sq);
+    let mut moveable = position;
+    let mut ne = Bitboard(0);
+    let mut se = Bitboard(0);
+    let mut sw = Bitboard(0);
+    let mut nw = Bitboard(0);
+    let mut result = Bitboard(0);
+    // NE
+    loop {
+        moveable = (moveable & !Files::FILE_H) << 9;
+        ne = ne | moveable;
+        if moveable.0 == 0 {
+            break;
+        }
+    }
+    moveable = position;
+    // SE
+    loop {
+        moveable = (moveable & !Files::FILE_H) >> 7;
+        se = se | moveable;
+        if moveable.0 == 0 {
+            break;
+        }
+    }
+    moveable = position;
+    // SW
+    loop {
+        moveable = (moveable & !Files::FILE_A) >> 9;
+        sw = sw | moveable;
+        if moveable.0 == 0 {
+            break;
+        }
+    }
+    moveable = position;
+    // NW
+    loop {
+        moveable = (moveable & !Files::FILE_A) << 7;
+        nw = nw | moveable;
+        if moveable.0 == 0 {
+            break;
+        }
+    }
+    result = ne & !(Ranks::RANK_8 | Files::FILE_H)
+        | se & !(Files::FILE_H | Ranks::RANK_1)
+        | sw & !(Ranks::RANK_1 | Files::FILE_A)
+        | nw & !(Files::FILE_A | Ranks::RANK_8);
+    result
+}
+
+pub fn rook_mask(sq: u8) -> Bitboard {
+    let mut position = Bitboard(0);
+    position.set_bit(sq);
+    let mut moveable = position;
+    let mut north = Bitboard(0);
+    let mut east = Bitboard(0);
+    let mut south = Bitboard(0);
+    let mut west = Bitboard(0);
+    let mut result = Bitboard(0);
+    // N
+    loop {
+        moveable = moveable << 8;
+        north = north | moveable;
+        if moveable.0 == 0 {
+            break;
+        }
+    }
+    moveable = position;
+    // E
+    loop {
+        moveable = (moveable & !Files::FILE_H) << 1;
+        east = east | moveable;
+        if moveable.0 == 0 {
+            break;
+        }
+    }
+    moveable = position;
+    // S
+    loop {
+        moveable = moveable >> 8;
+        south = south | moveable;
+        if moveable.0 == 0 {
+            break;
+        }
+    }
+    moveable = position;
+    // W
+    loop {
+        moveable = (moveable & !Files::FILE_A) >> 1;
+        west = west | moveable;
+        if moveable.0 == 0 {
+            break;
+        }
+    }
+    result = north & !Ranks::RANK_8
+        | east & !Files::FILE_H
+        | south & !Ranks::RANK_1
+        | west & !Files::FILE_A;
+    result
+}
+
 const KNIGHT_ATTACKS: [Bitboard; 64] = {
     let mut table = [Bitboard(0); 64];
     let mut sq = 0u8;
@@ -137,12 +239,12 @@ impl MoveGen {
         if color == Color::White {
             result = position << 8 & !occupancy;
             if square > 7 && square < 16 {
-                result = result | (position << 8 & !occupancy) << 8 & !occupancy;
+                result = result | result << 8 & !occupancy;
             }
         } else {
             result = position >> 8 & !occupancy;
             if square > 47 && square < 56 {
-                result = result | (position >> 8 & !occupancy) >> 8 & !occupancy;
+                result = result | result >> 8 & !occupancy;
             }
         }
         result
@@ -157,10 +259,10 @@ impl MoveGen {
         loop {
             moveable_position = (moveable_position & !Files::FILE_H) << 9;
             result = result | moveable_position;
-            if (moveable_position & occupancy).0 != 0 {
+            if moveable_position.0 == 0 {
                 break;
             }
-            if moveable_position.0 == 0 {
+            if (moveable_position & occupancy).0 != 0 {
                 break;
             }
         }
@@ -169,10 +271,10 @@ impl MoveGen {
         loop {
             moveable_position = (moveable_position & !Files::FILE_H) >> 7;
             result = result | moveable_position;
-            if (moveable_position & occupancy).0 != 0 {
+            if moveable_position.0 == 0 {
                 break;
             }
-            if moveable_position.0 == 0 {
+            if (moveable_position & occupancy).0 != 0 {
                 break;
             }
         }
@@ -181,10 +283,10 @@ impl MoveGen {
         loop {
             moveable_position = (moveable_position & !Files::FILE_A) >> 9;
             result = result | moveable_position;
-            if (moveable_position & occupancy).0 != 0 {
+            if moveable_position.0 == 0 {
                 break;
             }
-            if moveable_position.0 == 0 {
+            if (moveable_position & occupancy).0 != 0 {
                 break;
             }
         }
@@ -193,10 +295,10 @@ impl MoveGen {
         loop {
             moveable_position = (moveable_position & !Files::FILE_A) << 7;
             result = result | moveable_position;
-            if (moveable_position & occupancy).0 != 0 {
+            if moveable_position.0 == 0 {
                 break;
             }
-            if moveable_position.0 == 0 {
+            if (moveable_position & occupancy).0 != 0 {
                 break;
             }
         }
@@ -212,10 +314,10 @@ impl MoveGen {
         loop {
             moveable_position = moveable_position << 8;
             result = result | moveable_position;
-            if (moveable_position & occupancy).0 != 0 {
+            if moveable_position.0 == 0 {
                 break;
             }
-            if moveable_position.0 == 0 {
+            if (moveable_position & occupancy).0 != 0 {
                 break;
             }
         }
@@ -224,10 +326,10 @@ impl MoveGen {
         loop {
             moveable_position = (moveable_position & !Files::FILE_H) << 1;
             result = result | moveable_position;
-            if (moveable_position & occupancy).0 != 0 {
+            if moveable_position.0 == 0 {
                 break;
             }
-            if moveable_position.0 == 0 {
+            if (moveable_position & occupancy).0 != 0 {
                 break;
             }
         }
@@ -236,10 +338,10 @@ impl MoveGen {
         loop {
             moveable_position = moveable_position >> 8;
             result = result | moveable_position;
-            if (moveable_position & occupancy).0 != 0 {
+            if moveable_position.0 == 0 {
                 break;
             }
-            if moveable_position.0 == 0 {
+            if (moveable_position & occupancy).0 != 0 {
                 break;
             }
         }
@@ -248,10 +350,10 @@ impl MoveGen {
         loop {
             moveable_position = (moveable_position & !Files::FILE_A) >> 1;
             result = result | moveable_position;
-            if (moveable_position & occupancy).0 != 0 {
+            if moveable_position.0 == 0 {
                 break;
             }
-            if moveable_position.0 == 0 {
+            if (moveable_position & occupancy).0 != 0 {
                 break;
             }
         }
