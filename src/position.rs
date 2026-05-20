@@ -1,5 +1,5 @@
 use crate::bitboard::Bitboard;
-use crate::movegen::{Move, MoveFlags};
+use crate::movegen::{MagicTable, Move, MoveFlags, MoveGen};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(usize)]
@@ -120,6 +120,30 @@ impl Position {
         }
     }
 
+    pub fn display(&self) {
+        const PIECE_CHARS: [char; 6] = ['P', 'N', 'B', 'R', 'Q', 'K'];
+        println!("  A B C D E F G H");
+        for rank in (0..8).rev() {
+            print!("{} ", rank + 1);
+            for file in 0..8 {
+                let square = rank * 8 + file;
+                let idx = self.piece_on[square as usize];
+                if idx == 64 {
+                    print!(". ")
+                } else {
+                    let ch = PIECE_CHARS[(idx % 6) as usize];
+                    if idx / 6 == 0 {
+                        print!("{} ", ch.to_ascii_uppercase());
+                    } else {
+                        print!("{} ", ch.to_ascii_lowercase());
+                    }
+                }
+            }
+            println!();
+        }
+        println!();
+    }
+
     pub fn make_move(self, to_move: Move) -> Self {
         let mut result = self;
         result.en_passant = 64;
@@ -237,5 +261,9 @@ impl Position {
         }
         result.side_to_move = self.opponent();
         result
+    }
+
+    pub fn all_moves(self, table: &MagicTable) -> Vec<Move> {
+        MoveGen::generate_legal_moves(self, table)
     }
 }

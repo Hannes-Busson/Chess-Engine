@@ -1,3 +1,5 @@
+use std::vec;
+
 use crate::bitboard::{self, Bitboard};
 use crate::masks::Files;
 use crate::masks::Ranks;
@@ -217,6 +219,200 @@ const KING_ATTACKS: [Bitboard; 64] = {
     table
 };
 
+const BISHOP_MAGICS: [u64; 64] = [
+    0x0002020202020200,
+    0x0002020202020000,
+    0x0004010202000000,
+    0x0004040080000000,
+    0x0001104000000000,
+    0x0000821040000000,
+    0x0000410410400000,
+    0x0000104104104000,
+    0x0000040404040400,
+    0x0000020202020200,
+    0x0000040102020000,
+    0x0000040400800000,
+    0x0000011040000000,
+    0x0000008210400000,
+    0x0000004104104000,
+    0x0000002082082000,
+    0x0004000808080800,
+    0x0002000404040400,
+    0x0001000202020200,
+    0x0000800802004000,
+    0x0000800400A00000,
+    0x0000200100884000,
+    0x0000400082082000,
+    0x0000200041041000,
+    0x0002080010101000,
+    0x0001040008080800,
+    0x0000208004010400,
+    0x0000404004010200,
+    0x0000840000802000,
+    0x0000404002011000,
+    0x0000808001041000,
+    0x0000404000820800,
+    0x0001041000202000,
+    0x0000820800101000,
+    0x0000104400080800,
+    0x0000020080080080,
+    0x0000404040040100,
+    0x0000808100020100,
+    0x0001010100020800,
+    0x0000808080010400,
+    0x0000820820004000,
+    0x0000410410002000,
+    0x0000082088001000,
+    0x0000002011000800,
+    0x0000080100400400,
+    0x0001010101000200,
+    0x0002020202000400,
+    0x0001010101000200,
+    0x0000410410400000,
+    0x0000208208200000,
+    0x0000002084100000,
+    0x0000000020880000,
+    0x0000001002020000,
+    0x0000040408020000,
+    0x0004040404040000,
+    0x0002020202020000,
+    0x0000104104104000,
+    0x0000002082082000,
+    0x0000000020841000,
+    0x0000000008220000,
+    0x0000000100820400,
+    0x0000020408010000,
+    0x0000040816020000,
+    0x0000101010101000,
+];
+
+const ROOK_MAGICS: [u64; 64] = [
+    0x0080001020400080,
+    0x0040001000200040,
+    0x0080081000200080,
+    0x0080040800100080,
+    0x0080020400080080,
+    0x0080010200040080,
+    0x0080008001000200,
+    0x0080002040800100,
+    0x0000800020400080,
+    0x0000400020005000,
+    0x0000801000200080,
+    0x0000800800100080,
+    0x0000800400080080,
+    0x0000800200040080,
+    0x0000800100020080,
+    0x0000800040800100,
+    0x0000208000400080,
+    0x0000404000201000,
+    0x0000808010002000,
+    0x0000808008001000,
+    0x0000808004000800,
+    0x0000808002000400,
+    0x0000010100020004,
+    0x0000020000408104,
+    0x0000208080004000,
+    0x0000200040005000,
+    0x0000100080200080,
+    0x0000080080100080,
+    0x0000040080080080,
+    0x0000020080040080,
+    0x0000010080800200,
+    0x0000800080004100,
+    0x0000204000800080,
+    0x0000200040401000,
+    0x0000100080802000,
+    0x0000080080801000,
+    0x0000040080800800,
+    0x0000020080800400,
+    0x0000020001010004,
+    0x0000800040800100,
+    0x0000204000808000,
+    0x0000200040008080,
+    0x0000100020008080,
+    0x0000080010008080,
+    0x0000040008008080,
+    0x0000020004008080,
+    0x0000010002008080,
+    0x0000004081020004,
+    0x0000204000800080,
+    0x0000200040005000,
+    0x0000100080200080,
+    0x0000080080100080,
+    0x0000040080080080,
+    0x0000020080040080,
+    0x0000010080800200,
+    0x0000800080004100,
+    0x0000002040801052,
+    0x0000002010400020,
+    0x0000004081020004,
+    0x0000002081040008,
+    0x0000004010200208,
+    0x0000002008100104,
+    0x0000002040200040,
+    0x0000082080048040,
+];
+
+pub struct MagicTable {
+    pub bishop_masks: [Bitboard; 64],
+    pub bishop_magics: [u64; 64],
+    pub bishop_attacks: Box<[[Bitboard; 512]]>,
+    pub rook_masks: [Bitboard; 64],
+    pub rook_magics: [u64; 64],
+    pub rook_attacks: Box<[[Bitboard; 4096]]>,
+}
+
+impl MagicTable {
+    pub fn init() -> Self {
+        let mut bishop_masks = [Bitboard(0); 64];
+        let mut rook_masks = [Bitboard(0); 64];
+        for i in 0..64 {
+            bishop_masks[i] = bishop_mask(i as u8);
+        }
+        for i in 0..64 {
+            rook_masks[i] = rook_mask(i as u8);
+        }
+        let mut bishop_attacks = vec![[Bitboard(0); 512]; 64].into_boxed_slice();
+        for i in 0..64 {
+            let mask = bishop_masks[i].0;
+            let mut subset = 0u64;
+            let shift = 64 - mask.count_ones();
+            loop {
+                let attack = MoveGen::bishop_attacks_slow(i as u8, Bitboard(subset));
+                bishop_attacks[i][(subset.wrapping_mul(BISHOP_MAGICS[i]) >> shift) as usize] =
+                    attack;
+                subset = subset.wrapping_sub(mask) & mask;
+                if subset == 0 {
+                    break;
+                }
+            }
+        }
+        let mut rook_attacks = vec![[Bitboard(0); 4096]; 64].into_boxed_slice();
+        for i in 0..64 {
+            let mask = rook_masks[i].0;
+            let mut subset = 0u64;
+            let shift = 64 - mask.count_ones();
+            loop {
+                let attack = MoveGen::rook_attacks_slow(i as u8, Bitboard(subset));
+                rook_attacks[i][(subset.wrapping_mul(ROOK_MAGICS[i]) >> shift) as usize] = attack;
+                subset = subset.wrapping_sub(mask) & mask;
+                if subset == 0 {
+                    break;
+                }
+            }
+        }
+        let table = MagicTable {
+            bishop_masks: bishop_masks,
+            bishop_magics: BISHOP_MAGICS,
+            bishop_attacks: bishop_attacks,
+            rook_masks: rook_masks,
+            rook_magics: ROOK_MAGICS,
+            rook_attacks: rook_attacks,
+        };
+        table
+    }
+}
+
 pub struct MoveGen;
 
 impl MoveGen {
@@ -250,7 +446,7 @@ impl MoveGen {
         result
     }
 
-    pub fn bishop_attacks(square: u8, occupancy: Bitboard) -> Bitboard {
+    pub fn bishop_attacks_slow(square: u8, occupancy: Bitboard) -> Bitboard {
         let mut position = Bitboard(0);
         position.set_bit(square);
         let mut moveable_position = position;
@@ -305,7 +501,17 @@ impl MoveGen {
         result
     }
 
-    pub fn rook_attacks(square: u8, occupancy: Bitboard) -> Bitboard {
+    pub fn bishop_attacks(square: u8, occupancy: Bitboard, table: &MagicTable) -> Bitboard {
+        let mut result = Bitboard(0);
+        result = occupancy & table.bishop_masks[square as usize];
+        let index = (result.0.wrapping_mul(table.bishop_magics[square as usize])
+            >> 64 - table.bishop_masks[square as usize].0.count_ones())
+            as usize;
+        result = table.bishop_attacks[square as usize][index];
+        result
+    }
+
+    pub fn rook_attacks_slow(square: u8, occupancy: Bitboard) -> Bitboard {
         let mut position = Bitboard(0);
         position.set_bit(square);
         let mut moveable_position = position;
@@ -360,11 +566,21 @@ impl MoveGen {
         result
     }
 
-    pub fn queen_attacks(square: u8, occupancy: Bitboard) -> Bitboard {
-        MoveGen::bishop_attacks(square, occupancy) | MoveGen::rook_attacks(square, occupancy)
+    pub fn rook_attacks(square: u8, occupancy: Bitboard, table: &MagicTable) -> Bitboard {
+        let mut result = Bitboard(0);
+        result = occupancy & table.rook_masks[square as usize];
+        let index = (result.0.wrapping_mul(table.rook_magics[square as usize])
+            >> 64 - table.rook_masks[square as usize].0.count_ones()) as usize;
+        result = table.rook_attacks[square as usize][index];
+        result
     }
 
-    pub fn generate_moves(position: Position) -> Vec<Move> {
+    pub fn queen_attacks(square: u8, occupancy: Bitboard, table: &MagicTable) -> Bitboard {
+        MoveGen::bishop_attacks(square, occupancy, table)
+            | MoveGen::rook_attacks(square, occupancy, table)
+    }
+
+    pub fn generate_moves(position: Position, table: &MagicTable) -> Vec<Move> {
         let mut result: Vec<Move> = Vec::new();
         let color = position.side_to_move;
         let own_pieces = position.occupancy_for(color);
@@ -402,9 +618,9 @@ impl MoveGen {
             if position.castling & CastlingRights::WK != 0
                 && !all_pieces.get_bit(5)
                 && !all_pieces.get_bit(6)
-                && !MoveGen::is_attacked(4, &position)
-                && !MoveGen::is_attacked(5, &position)
-                && !MoveGen::is_attacked(6, &position)
+                && !MoveGen::is_attacked(4, &position, table)
+                && !MoveGen::is_attacked(5, &position, table)
+                && !MoveGen::is_attacked(6, &position, table)
             {
                 result.push(Move::new(4, 6, MoveFlags::KINGSIDE_CASTLE));
             }
@@ -413,9 +629,9 @@ impl MoveGen {
                 && !all_pieces.get_bit(1)
                 && !all_pieces.get_bit(2)
                 && !all_pieces.get_bit(3)
-                && !MoveGen::is_attacked(2, &position)
-                && !MoveGen::is_attacked(3, &position)
-                && !MoveGen::is_attacked(4, &position)
+                && !MoveGen::is_attacked(2, &position, table)
+                && !MoveGen::is_attacked(3, &position, table)
+                && !MoveGen::is_attacked(4, &position, table)
             {
                 result.push(Move::new(4, 2, MoveFlags::QUEENSIDE_CASTLE));
             }
@@ -424,9 +640,9 @@ impl MoveGen {
             if position.castling & CastlingRights::BK != 0
                 && !all_pieces.get_bit(61)
                 && !all_pieces.get_bit(62)
-                && !MoveGen::is_attacked(60, &position)
-                && !MoveGen::is_attacked(61, &position)
-                && !MoveGen::is_attacked(62, &position)
+                && !MoveGen::is_attacked(60, &position, table)
+                && !MoveGen::is_attacked(61, &position, table)
+                && !MoveGen::is_attacked(62, &position, table)
             {
                 result.push(Move::new(60, 62, MoveFlags::KINGSIDE_CASTLE));
             }
@@ -435,9 +651,9 @@ impl MoveGen {
                 && !all_pieces.get_bit(57)
                 && !all_pieces.get_bit(58)
                 && !all_pieces.get_bit(59)
-                && !MoveGen::is_attacked(58, &position)
-                && !MoveGen::is_attacked(59, &position)
-                && !MoveGen::is_attacked(60, &position)
+                && !MoveGen::is_attacked(58, &position, table)
+                && !MoveGen::is_attacked(59, &position, table)
+                && !MoveGen::is_attacked(60, &position, table)
             {
                 result.push(Move::new(60, 58, MoveFlags::QUEENSIDE_CASTLE));
             }
@@ -446,7 +662,7 @@ impl MoveGen {
         let mut bishops = *position.get_piece_bitboard(color, PieceType::Bishop);
         while !bishops.is_empty() {
             let from = bishops.pop_lsb();
-            let mut attacks = MoveGen::bishop_attacks(from, all_pieces) & !own_pieces;
+            let mut attacks = MoveGen::bishop_attacks(from, all_pieces, table) & !own_pieces;
             while !attacks.is_empty() {
                 let to = attacks.pop_lsb();
                 if all_pieces.get_bit(to) {
@@ -460,7 +676,7 @@ impl MoveGen {
         let mut rooks = *position.get_piece_bitboard(color, PieceType::Rook);
         while !rooks.is_empty() {
             let from = rooks.pop_lsb();
-            let mut attacks = MoveGen::rook_attacks(from, all_pieces) & !own_pieces;
+            let mut attacks = MoveGen::rook_attacks(from, all_pieces, table) & !own_pieces;
             while !attacks.is_empty() {
                 let to = attacks.pop_lsb();
                 if all_pieces.get_bit(to) {
@@ -474,7 +690,7 @@ impl MoveGen {
         let mut queens = *position.get_piece_bitboard(color, PieceType::Queen);
         while !queens.is_empty() {
             let from = queens.pop_lsb();
-            let mut attacks = MoveGen::queen_attacks(from, all_pieces) & !own_pieces;
+            let mut attacks = MoveGen::queen_attacks(from, all_pieces, table) & !own_pieces;
             while !attacks.is_empty() {
                 let to = attacks.pop_lsb();
                 if all_pieces.get_bit(to) {
@@ -534,12 +750,12 @@ impl MoveGen {
         result
     }
 
-    pub fn is_attacked(square: u8, position: &Position) -> bool {
+    pub fn is_attacked(square: u8, position: &Position, table: &MagicTable) -> bool {
         let occupancy = position.occupancy();
         let color = position.side_to_move;
         let opponent_color = position.opponent();
-        let diagonals = MoveGen::bishop_attacks(square, occupancy);
-        let straights = MoveGen::rook_attacks(square, occupancy);
+        let diagonals = MoveGen::bishop_attacks(square, occupancy, table);
+        let straights = MoveGen::rook_attacks(square, occupancy, table);
         let pawns_attacks = MoveGen::pawn_attacks(square, color);
         let king_attacks = MoveGen::king_attacks(square);
         let knight_attacks = MoveGen::knight_attacks(square);
@@ -554,5 +770,23 @@ impl MoveGen {
             || (pawns_attacks & enemy_pawns).0 != 0
             || (king_attacks & enemy_king).0 != 0
             || (knight_attacks & enemy_knight).0 != 0
+    }
+
+    pub fn generate_legal_moves(position: Position, table: &MagicTable) -> Vec<Move> {
+        let mut result: Vec<Move> = Vec::new();
+        let color = position.side_to_move;
+        let pseudo = MoveGen::generate_moves(position, table);
+        for m in pseudo {
+            let mut new_position = position.make_move(m);
+            let king_sq = new_position
+                .get_piece_bitboard(color, PieceType::King)
+                .0
+                .trailing_zeros() as u8;
+            new_position.side_to_move = color;
+            if !MoveGen::is_attacked(king_sq, &new_position, table) {
+                result.push(m);
+            }
+        }
+        result
     }
 }
