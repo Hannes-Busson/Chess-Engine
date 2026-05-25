@@ -712,6 +712,170 @@ mod tests {
         assert!(!attacks.get_bit(sq(0, 4)), "a5 should be cut off");
     }
 
+    // ── Rook/queen through-own-piece regression ──────────────────────────────
+
+    #[test]
+    fn rook_d2_blocked_at_d6() {
+        let mut occ = Bitboard(0);
+        occ.set_bit(sq(3, 5)); // d6 blocker
+        let attacks = MoveGen::rook_attacks(sq(3, 1), occ, &magic()); // rook on d2
+        assert!(attacks.get_bit(sq(3, 2)), "d3 reachable");
+        assert!(attacks.get_bit(sq(3, 4)), "d5 reachable");
+        assert!(attacks.get_bit(sq(3, 5)), "d6 included as capture target");
+        assert!(!attacks.get_bit(sq(3, 6)), "d7 must be cut off");
+        assert!(!attacks.get_bit(sq(3, 7)), "d8 must be cut off");
+    }
+
+    #[test]
+    fn rook_d2_blocked_at_d6_with_rank_pawns() {
+        // mirrors the actual game position: e2/f2/g2 pawns also in occupancy
+        let mut occ = Bitboard(0);
+        occ.set_bit(sq(3, 5)); // d6 blocker
+        occ.set_bit(sq(4, 1)); // e2
+        occ.set_bit(sq(5, 1)); // f2
+        occ.set_bit(sq(6, 1)); // g2
+        let attacks = MoveGen::rook_attacks(sq(3, 1), occ, &magic()); // rook on d2
+        assert!(attacks.get_bit(sq(3, 2)), "d3 reachable");
+        assert!(attacks.get_bit(sq(3, 4)), "d5 reachable");
+        assert!(attacks.get_bit(sq(3, 5)), "d6 included as capture target");
+        assert!(!attacks.get_bit(sq(3, 6)), "d7 must be cut off");
+        assert!(!attacks.get_bit(sq(3, 7)), "d8 must be cut off");
+    }
+
+    #[test]
+    fn rook_magic_no_harmful_collisions() {
+        let table = magic();
+        for sq in 0u8..64 {
+            let mask = table.rook_masks[sq as usize].0;
+            let shift = 64 - mask.count_ones();
+            let mut subset = 0u64;
+            loop {
+                let expected = MoveGen::rook_attacks_slow(sq, Bitboard(subset));
+                let index = (subset.wrapping_mul(table.rook_magics[sq as usize]) >> shift) as usize;
+                let got = table.rook_attacks[sq as usize][index];
+                assert_eq!(
+                    got.0, expected.0,
+                    "rook magic collision on sq={sq}: occupancy={subset:#066b} expected={:#066b} got={:#066b}",
+                    expected.0, got.0
+                );
+                subset = subset.wrapping_sub(mask) & mask;
+                if subset == 0 { break; }
+            }
+        }
+    }
+
+    #[test]
+    fn bishop_magic_no_harmful_collisions() {
+        let table = magic();
+        for sq in 0u8..64 {
+            let mask = table.bishop_masks[sq as usize].0;
+            let shift = 64 - mask.count_ones();
+            let mut subset = 0u64;
+            loop {
+                let expected = MoveGen::bishop_attacks_slow(sq, Bitboard(subset));
+                let index = (subset.wrapping_mul(table.bishop_magics[sq as usize]) >> shift) as usize;
+                let got = table.bishop_attacks[sq as usize][index];
+                assert_eq!(
+                    got.0, expected.0,
+                    "bishop magic collision on sq={sq}: occupancy={subset:#066b} expected={:#066b} got={:#066b}",
+                    expected.0, got.0
+                );
+                subset = subset.wrapping_sub(mask) & mask;
+                if subset == 0 { break; }
+            }
+        }
+    }
+
+    #[test]
+    fn rook_d8_blocked_at_d6_full_position() {
+        // exact piece layout from the bug: queen on d8 attacks south,
+        // should be blocked by pawn on d6 before reaching d2 (white king)
+        let mut occ = Bitboard(0);
+        occ.set_bit(sq(3, 5)); // d6 black pawn
+        occ.set_bit(sq(3, 1)); // d2 white king
+        occ.set_bit(sq(4, 7)); // e8 black king
+        occ.set_bit(sq(5, 7)); // f8 black bishop
+        occ.set_bit(sq(2, 1)); // c2 white pawn
+        occ.set_bit(sq(4, 1)); // e2 white pawn
+        occ.set_bit(sq(5, 1)); // f2 white pawn
+        occ.set_bit(sq(6, 1)); // g2 white pawn
+        occ.set_bit(sq(7, 1)); // h2 white pawn
+        let attacks = MoveGen::rook_attacks(sq(3, 7), occ, &magic()); // rook on d8
+        assert!(attacks.get_bit(sq(3, 6)), "d7 reachable");
+        assert!(attacks.get_bit(sq(3, 5)), "d6 included as capture target");
+        assert!(!attacks.get_bit(sq(3, 4)), "d5 must be cut off");
+        assert!(!attacks.get_bit(sq(3, 1)), "d2 must be cut off (king capture!)");
+    }
+
+    #[test]
+    fn queen_cannot_jump_pawn_exact_game_position() {
+        // exact board from the bug report:
+        // 8 . . . . k b . r
+        // 7 . p p . p p p p
+        // 6 . . . p . . . .
+        // 5 . . . . . . . .
+        // 4 . . . . . . b .
+        // 3 P . . . . . . .
+        // 2 . . P q P P P P
+        // 1 . . B Q N B . R
+        let mut pos = empty(Color::Black);
+        // black pieces
+        place(&mut pos, Color::Black, PieceType::King,   sq(4, 7)); // e8
+        place(&mut pos, Color::Black, PieceType::Bishop, sq(5, 7)); // f8
+        place(&mut pos, Color::Black, PieceType::Rook,   sq(7, 7)); // h8
+        place(&mut pos, Color::Black, PieceType::Pawn,   sq(1, 6)); // b7
+        place(&mut pos, Color::Black, PieceType::Pawn,   sq(2, 6)); // c7
+        place(&mut pos, Color::Black, PieceType::Pawn,   sq(4, 6)); // e7
+        place(&mut pos, Color::Black, PieceType::Pawn,   sq(5, 6)); // f7
+        place(&mut pos, Color::Black, PieceType::Pawn,   sq(6, 6)); // g7
+        place(&mut pos, Color::Black, PieceType::Pawn,   sq(7, 6)); // h7
+        place(&mut pos, Color::Black, PieceType::Pawn,   sq(3, 5)); // d6
+        place(&mut pos, Color::Black, PieceType::Bishop, sq(6, 3)); // g4
+        place(&mut pos, Color::Black, PieceType::Queen,  sq(3, 1)); // d2
+        // white pieces
+        place(&mut pos, Color::White, PieceType::King,   sq(4, 0)); // e1 (moved to e1 for validity)
+        place(&mut pos, Color::White, PieceType::Pawn,   sq(0, 2)); // a3
+        place(&mut pos, Color::White, PieceType::Pawn,   sq(2, 1)); // c2
+        place(&mut pos, Color::White, PieceType::Pawn,   sq(4, 1)); // e2
+        place(&mut pos, Color::White, PieceType::Pawn,   sq(5, 1)); // f2
+        place(&mut pos, Color::White, PieceType::Pawn,   sq(6, 1)); // g2
+        place(&mut pos, Color::White, PieceType::Pawn,   sq(7, 1)); // h2
+        place(&mut pos, Color::White, PieceType::Bishop, sq(2, 0)); // c1
+        place(&mut pos, Color::White, PieceType::Queen,  sq(3, 0)); // d1
+        place(&mut pos, Color::White, PieceType::Knight, sq(4, 0)); // e1 conflicts — use f1 instead
+        place(&mut pos, Color::White, PieceType::Bishop, sq(5, 0)); // f1
+        place(&mut pos, Color::White, PieceType::Rook,   sq(7, 0)); // h1
+        let moves = MoveGen::generate_moves(pos, &magic());
+        let queen_moves: Vec<_> = moves.iter().filter(|m| m.from() == sq(3, 1)).collect();
+        assert!(
+            !queen_moves.iter().any(|m| m.to() == sq(3, 6)),
+            "queen on d2 must not reach d7 (jumps own pawn on d6)"
+        );
+        assert!(
+            !queen_moves.iter().any(|m| m.to() == sq(3, 7)),
+            "queen on d2 must not reach d8 (jumps own pawn on d6)"
+        );
+    }
+
+    #[test]
+    fn queen_cannot_jump_own_pawn_vertically() {
+        let mut pos = empty(Color::Black);
+        place(&mut pos, Color::White, PieceType::King, sq(0, 0));
+        place(&mut pos, Color::Black, PieceType::King, sq(4, 7));
+        place(&mut pos, Color::Black, PieceType::Queen, sq(3, 1)); // d2
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(3, 5));  // d6
+        let moves = MoveGen::generate_moves(pos, &magic());
+        let queen_moves: Vec<_> = moves.iter().filter(|m| m.from() == sq(3, 1)).collect();
+        assert!(
+            !queen_moves.iter().any(|m| m.to() == sq(3, 6)),
+            "queen on d2 must not reach d7 with own pawn on d6"
+        );
+        assert!(
+            !queen_moves.iter().any(|m| m.to() == sq(3, 7)),
+            "queen on d2 must not reach d8 with own pawn on d6"
+        );
+    }
+
     // ── Legal move generation ────────────────────────────────────────────────
 
     #[test]

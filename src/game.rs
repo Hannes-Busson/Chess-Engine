@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use crate::movegen::{Move, MoveFlags};
 use crate::position::{Color, Position};
 

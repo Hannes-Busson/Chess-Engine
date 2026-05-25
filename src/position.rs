@@ -139,6 +139,7 @@ impl Position {
                     }
                 }
             }
+            print!("/r");
             println!();
         }
         println!();
@@ -265,5 +266,13 @@ impl Position {
 
     pub fn all_moves(self, table: &MagicTable) -> Vec<Move> {
         MoveGen::generate_legal_moves(self, table)
+    }
+
+    pub fn king_under_attack(mut self, table: &MagicTable) -> bool {
+        MoveGen::is_attacked(
+            self.pieces[(self.side_to_move as u8 * 6 + 5) as usize].pop_lsb(),
+            &self,
+            table,
+        )
     }
 }
