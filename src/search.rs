@@ -4,6 +4,7 @@ use crate::{
     eval::evaluate_for_white,
     movegen::{MagicTable, Move, MoveFlags},
     position::{Color, PieceType, Position},
+    tt::TransponationTable,
 };
 
 pub fn negamax(
@@ -12,6 +13,7 @@ pub fn negamax(
     mut alpha: i32,
     beta: i32,
     table: &MagicTable,
+    t_table: &mut TransponationTable,
 ) -> i32 {
     if depth == 0 {
         return evaluate_for_white(&position)
@@ -20,6 +22,9 @@ pub fn negamax(
             } else {
                 -1
             };
+    }
+    if let Some(t) = t_table.lookup(position.hash, depth as u8, alpha, beta) {
+        return t;
     }
     let mut legal_moves = position.all_moves(table);
     if legal_moves.is_empty() {
@@ -30,8 +35,16 @@ pub fn negamax(
         }
     }
     legal_moves.sort_by_key(|mv| -move_score(&position, mv));
+    let original_alpha = alpha;
     for mv in legal_moves {
-        let score = -negamax(position.make_move(mv), depth - 1, -beta, -alpha, table);
+        let score = -negamax(
+            position.make_move(mv),
+            depth - 1,
+            -beta,
+            -alpha,
+            table,
+            t_table,
+        );
         if score > alpha {
             alpha = score;
         }
@@ -39,10 +52,22 @@ pub fn negamax(
             break;
         }
     }
+    if alpha >= beta {
+        t_table.store(position.hash, alpha, depth as u8, 2);
+    } else if alpha > original_alpha {
+        t_table.store(position.hash, alpha, depth as u8, 0);
+    } else {
+        t_table.store(position.hash, alpha, depth as u8, 1);
+    }
     alpha
 }
 
-pub fn best_move(position: Position, depth: u32, table: &MagicTable) -> Option<Move> {
+pub fn best_move(
+    position: Position,
+    depth: u32,
+    table: &MagicTable,
+    t_table: &mut TransponationTable,
+) -> Option<Move> {
     if depth == 0 {
         return None;
     }
@@ -57,6 +82,7 @@ pub fn best_move(position: Position, depth: u32, table: &MagicTable) -> Option<M
             -1000000i32,
             -highest_score,
             table,
+            t_table,
         );
         if score > highest_score {
             highest_score = score;
@@ -72,26 +98,23 @@ pub fn move_score(position: &Position, mv: &Move) -> i32 {
     let base = 10000i32;
     let from = mv.from();
     let to = mv.to();
+    let piece_on_to = position.piece_on[to as usize] % 6;
     match mv.flags() {
         MoveFlags::CAPTURE => {
-            base + PIECE_VALUES[(position.piece_on[to as usize] % 6) as usize]
+            base + PIECE_VALUES[(piece_on_to) as usize]
                 - PIECE_VALUES[(position.piece_on[from as usize] % 6) as usize] as i32
         }
         MoveFlags::KNIGHT_PROMOTION_CAPTURE => {
-            base + PIECE_VALUES[(position.piece_on[to as usize] % 6) as usize]
-                - PIECE_VALUES[0] as i32
+            base + PIECE_VALUES[(piece_on_to) as usize] - PIECE_VALUES[0] as i32
         }
         MoveFlags::BISHOP_PROMOTION_CAPTURE => {
-            base + PIECE_VALUES[(position.piece_on[to as usize] % 6) as usize]
-                - PIECE_VALUES[0] as i32
+            base + PIECE_VALUES[(piece_on_to) as usize] - PIECE_VALUES[0] as i32
         }
         MoveFlags::ROOK_PROMOTION_CAPTURE => {
-            base + PIECE_VALUES[(position.piece_on[to as usize] % 6) as usize]
-                - PIECE_VALUES[0] as i32
+            base + PIECE_VALUES[(piece_on_to) as usize] - PIECE_VALUES[0] as i32
         }
         MoveFlags::QUEEN_PROMOTION_CAPTURE => {
-            base + PIECE_VALUES[(position.piece_on[to as usize] % 6) as usize]
-                - PIECE_VALUES[0] as i32
+            base + PIECE_VALUES[(piece_on_to) as usize] - PIECE_VALUES[0] as i32
         }
         MoveFlags::EN_PASSANT => base + PIECE_VALUES[0] - PIECE_VALUES[0] as i32,
         _ => 0i32,

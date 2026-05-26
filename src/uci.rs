@@ -1,14 +1,16 @@
 use crate::{
     file_to_number,
-    movegen::MagicTable,
+    movegen::{MagicTable, Move},
     position::{self, Position},
     search::best_move,
+    tt::TransponationTable,
 };
 
 pub fn run() {
     let table = MagicTable::init();
     let mut game = Position::start();
     let mut line = String::new();
+    let mut t_table = TransponationTable::new();
 
     loop {
         line.clear();
@@ -30,7 +32,7 @@ pub fn run() {
                         let mut coordinates = [' '; 4];
                         let legal_moves = game.all_moves(&table);
                         for i in 0..4 {
-                            coordinates[i] = tokens[t].chars().nth(i).unwrap();
+                            coordinates[i] = tokens[t].as_bytes()[i] as char;
                         }
                         let file_from = file_to_number(coordinates[0]);
                         let file_to = file_to_number(coordinates[2]);
@@ -59,42 +61,34 @@ pub fn run() {
             "go" => match tokens[1] {
                 "depth" => {
                     let depth: u32 = tokens[2].parse().unwrap();
-                    let best_mv = best_move(game, depth, &table);
-                    let mut coordinates: [char; 4] = [' '; 4];
+                    let best_mv = best_move(game, depth, &table, &mut t_table);
                     if let Some(mv) = best_mv {
-                        let from = mv.from();
-                        let to = mv.to();
-                        coordinates[0] = (b'a' + from % 8) as char;
-                        coordinates[1] = (b'1' + from / 8) as char;
-                        coordinates[2] = (b'a' + to % 8) as char;
-                        coordinates[3] = (b'1' + to / 8) as char;
-                        let mut move_string = String::new();
-                        for c in coordinates {
-                            move_string.push(c);
-                        }
-                        println!("bestmove {}", move_string);
+                        println!("bestmove {}", mv_to_string(mv));
                     }
                 }
                 _ => {
-                    // let depth: u32 = tokens[2].parse().unwrap();
-                    let best_mv = best_move(game, 8, &table);
-                    let mut coordinates: [char; 4] = [' '; 4];
+                    let best_mv = best_move(game, 9, &table, &mut t_table);
                     if let Some(mv) = best_mv {
-                        let from = mv.from();
-                        let to = mv.to();
-                        coordinates[0] = (b'a' + from % 8) as char;
-                        coordinates[1] = (b'1' + from / 8) as char;
-                        coordinates[2] = (b'a' + to % 8) as char;
-                        coordinates[3] = (b'1' + to / 8) as char;
-                        let mut move_string = String::new();
-                        for c in coordinates {
-                            move_string.push(c);
-                        }
-                        println!("bestmove {}", move_string);
+                        println!("bestmove {}", mv_to_string(mv));
                     }
                 }
             },
             _ => println!("Command unknown"),
         }
     }
+}
+
+pub fn mv_to_string(mv: Move) -> String {
+    let mut coordinates: [char; 4] = [' '; 4];
+    let from = mv.from();
+    let to = mv.to();
+    coordinates[0] = (b'a' + from % 8) as char;
+    coordinates[1] = (b'1' + from / 8) as char;
+    coordinates[2] = (b'a' + to % 8) as char;
+    coordinates[3] = (b'1' + to / 8) as char;
+    let mut move_string = String::new();
+    for c in coordinates {
+        move_string.push(c);
+    }
+    move_string
 }

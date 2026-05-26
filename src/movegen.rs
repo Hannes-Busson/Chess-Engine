@@ -357,15 +357,19 @@ pub struct MagicTable {
     pub bishop_masks: [Bitboard; 64],
     pub bishop_magics: [u64; 64],
     pub bishop_attacks: Box<[[Bitboard; 512]]>,
+    pub bishop_shifts: [u8; 64],
     pub rook_masks: [Bitboard; 64],
     pub rook_magics: [u64; 64],
     pub rook_attacks: Box<[[Bitboard; 4096]]>,
+    pub rook_shifts: [u8; 64],
 }
 
 impl MagicTable {
     pub fn init() -> Self {
         let mut bishop_masks = [Bitboard(0); 64];
         let mut rook_masks = [Bitboard(0); 64];
+        let mut bishop_shifts = [0u8; 64];
+        let mut rook_shifts = [0u8; 64];
         for i in 0..64 {
             bishop_masks[i] = bishop_mask(i as u8);
         }
@@ -401,13 +405,22 @@ impl MagicTable {
                 }
             }
         }
+        for i in 0..bishop_shifts.len() {
+            bishop_shifts[i] = (64 - bishop_masks[i].0.count_ones()) as u8;
+        }
+        for i in 0..rook_shifts.len() {
+            rook_shifts[i] = (64 - rook_masks[i].0.count_ones()) as u8;
+        }
+
         let table = MagicTable {
             bishop_masks: bishop_masks,
             bishop_magics: BISHOP_MAGICS,
             bishop_attacks: bishop_attacks,
+            bishop_shifts: bishop_shifts,
             rook_masks: rook_masks,
             rook_magics: ROOK_MAGICS,
             rook_attacks: rook_attacks,
+            rook_shifts: rook_shifts,
         };
         table
     }
@@ -505,8 +518,7 @@ impl MoveGen {
         let mut result = Bitboard(0);
         result = occupancy & table.bishop_masks[square as usize];
         let index = (result.0.wrapping_mul(table.bishop_magics[square as usize])
-            >> 64 - table.bishop_masks[square as usize].0.count_ones())
-            as usize;
+            >> table.bishop_shifts[square as usize]) as usize;
         result = table.bishop_attacks[square as usize][index];
         result
     }
@@ -570,7 +582,7 @@ impl MoveGen {
         let mut result = Bitboard(0);
         result = occupancy & table.rook_masks[square as usize];
         let index = (result.0.wrapping_mul(table.rook_magics[square as usize])
-            >> 64 - table.rook_masks[square as usize].0.count_ones()) as usize;
+            >> table.rook_shifts[square as usize]) as usize;
         result = table.rook_attacks[square as usize][index];
         result
     }
@@ -581,7 +593,7 @@ impl MoveGen {
     }
 
     pub fn generate_moves(position: Position, table: &MagicTable) -> Vec<Move> {
-        let mut result: Vec<Move> = Vec::new();
+        let mut result: Vec<Move> = Vec::with_capacity(64);
         let color = position.side_to_move;
         let own_pieces = position.occupancy_for(color);
         let all_pieces = position.occupancy();
@@ -701,13 +713,11 @@ impl MoveGen {
             }
         }
         // pawns
-        let ep_bb = if position.en_passant != 64 {
-            let mut bb = Bitboard(0);
-            bb.set_bit(position.en_passant);
-            bb
+        let ep_bb = Bitboard(if position.en_passant != 64 {
+            1u64 << position.en_passant
         } else {
-            Bitboard(0)
-        };
+            0
+        });
         let promotion_rank = if color == Color::White {
             Ranks::RANK_8
         } else {

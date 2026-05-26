@@ -80,14 +80,9 @@ impl Position {
         for (idx, p) in pieces.iter().enumerate() {
             let mut bb = *p;
             while bb.0 != 0 {
-                piece_on[bb.pop_lsb() as usize] = idx as u8;
-            }
-        }
-
-        for (idx, p) in pieces.iter().enumerate() {
-            let mut piece = *p;
-            while piece.0 != 0 {
-                hash = hash ^ zobrist::keys()[idx * 64 + piece.pop_lsb() as usize];
+                let index = bb.pop_lsb() as usize;
+                piece_on[index] = idx as u8;
+                hash = hash ^ zobrist::keys()[idx * 64 + index];
             }
         }
 
@@ -309,8 +304,8 @@ impl Position {
                 result.piece_on[to as usize + (color as usize) * 16 - 8] = 64;
                 result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
                 result.hash ^= zobrist::keys()[piece_idx * 64 + to as usize];
-                result.hash ^=
-                    zobrist::keys()[opponent_idx * 64 + (to as usize + (color as usize) * 16 - 8)];
+                result.hash ^= zobrist::keys()
+                    [(1 - color as usize) * 6 * 64 + (to as usize + (color as usize) * 16 - 8)];
             }
             MoveFlags::DOUBLE_PAWN_PUSH => {
                 result.pieces[piece_idx].clear_bit(from);
@@ -327,14 +322,14 @@ impl Position {
         result.hash ^= zobrist::keys()[768];
         for i in 0..4 {
             if (self.castling >> i) & 1 != 0 {
-                result.hash = zobrist::keys()[769 + i];
+                result.hash ^= zobrist::keys()[769 + i];
             }
         }
         if self.en_passant != 64 {
-            result.hash = zobrist::keys()[773 + (self.en_passant % 8) as usize];
+            result.hash ^= zobrist::keys()[773 + (self.en_passant % 8) as usize];
         }
         if result.en_passant != 64 {
-            result.hash = zobrist::keys()[773 + (self.en_passant % 8) as usize];
+            result.hash ^= zobrist::keys()[773 + (result.en_passant % 8) as usize];
         }
 
         result.side_to_move = self.opponent();
@@ -347,7 +342,9 @@ impl Position {
 
     pub fn king_under_attack(mut self, table: &MagicTable) -> bool {
         MoveGen::is_attacked(
-            self.pieces[(self.side_to_move as u8 * 6 + 5) as usize].pop_lsb(),
+            self.pieces[(self.side_to_move as u8 * 6 + 5) as usize]
+                .0
+                .trailing_zeros() as u8,
             &self,
             table,
         )

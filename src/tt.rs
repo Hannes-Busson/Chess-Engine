@@ -10,6 +10,8 @@ pub struct TransponationTable {
     pub vault: Vec<TTEntry>,
 }
 
+pub const SHIFT: usize = (1 << 22) - 1;
+
 impl TransponationTable {
     pub fn new() -> Self {
         let vault = vec![
@@ -25,7 +27,7 @@ impl TransponationTable {
     }
 
     pub fn store(&mut self, hash: u64, score: i32, depth: u8, flag: u8) {
-        self.vault[hash as usize & ((1 << 22) - 1)] = TTEntry {
+        self.vault[hash as usize & SHIFT] = TTEntry {
             hash,
             score,
             depth,
@@ -33,5 +35,29 @@ impl TransponationTable {
         };
     }
 
-    pub fn lookup(&self, hash: u64, depth: u8, alpha: i32, beta: i32) -> Option<i32> {}
+    pub fn lookup(&self, hash: u64, depth: u8, alpha: i32, beta: i32) -> Option<i32> {
+        let entry = self.vault[hash as usize & SHIFT];
+        if entry.hash == hash && entry.depth >= depth {
+            match entry.flag {
+                0 => Some(entry.score),
+                1 => {
+                    if entry.score <= alpha {
+                        Some(alpha)
+                    } else {
+                        None
+                    }
+                }
+                2 => {
+                    if entry.score >= beta {
+                        Some(beta)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }
+        } else {
+            None
+        }
+    }
 }
