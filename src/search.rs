@@ -13,10 +13,6 @@ pub fn negamax(
     beta: i32,
     table: &MagicTable,
 ) -> i32 {
-    if position.pieces[(position.side_to_move as usize) * 6 + 5].0 == 0 {
-        position.display();
-        println!("{}", depth);
-    }
     if depth == 0 {
         return evaluate_for_white(&position)
             * if position.side_to_move == Color::White {

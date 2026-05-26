@@ -11,6 +11,7 @@ mod tests {
             side_to_move: side,
             castling: CastlingRights::NONE,
             en_passant: 64,
+            hash: 0u64,
         }
     }
 
@@ -759,7 +760,9 @@ mod tests {
                     expected.0, got.0
                 );
                 subset = subset.wrapping_sub(mask) & mask;
-                if subset == 0 { break; }
+                if subset == 0 {
+                    break;
+                }
             }
         }
     }
@@ -773,7 +776,8 @@ mod tests {
             let mut subset = 0u64;
             loop {
                 let expected = MoveGen::bishop_attacks_slow(sq, Bitboard(subset));
-                let index = (subset.wrapping_mul(table.bishop_magics[sq as usize]) >> shift) as usize;
+                let index =
+                    (subset.wrapping_mul(table.bishop_magics[sq as usize]) >> shift) as usize;
                 let got = table.bishop_attacks[sq as usize][index];
                 assert_eq!(
                     got.0, expected.0,
@@ -781,7 +785,9 @@ mod tests {
                     expected.0, got.0
                 );
                 subset = subset.wrapping_sub(mask) & mask;
-                if subset == 0 { break; }
+                if subset == 0 {
+                    break;
+                }
             }
         }
     }
@@ -804,7 +810,10 @@ mod tests {
         assert!(attacks.get_bit(sq(3, 6)), "d7 reachable");
         assert!(attacks.get_bit(sq(3, 5)), "d6 included as capture target");
         assert!(!attacks.get_bit(sq(3, 4)), "d5 must be cut off");
-        assert!(!attacks.get_bit(sq(3, 1)), "d2 must be cut off (king capture!)");
+        assert!(
+            !attacks.get_bit(sq(3, 1)),
+            "d2 must be cut off (king capture!)"
+        );
     }
 
     #[test]
@@ -820,31 +829,31 @@ mod tests {
         // 1 . . B Q N B . R
         let mut pos = empty(Color::Black);
         // black pieces
-        place(&mut pos, Color::Black, PieceType::King,   sq(4, 7)); // e8
+        place(&mut pos, Color::Black, PieceType::King, sq(4, 7)); // e8
         place(&mut pos, Color::Black, PieceType::Bishop, sq(5, 7)); // f8
-        place(&mut pos, Color::Black, PieceType::Rook,   sq(7, 7)); // h8
-        place(&mut pos, Color::Black, PieceType::Pawn,   sq(1, 6)); // b7
-        place(&mut pos, Color::Black, PieceType::Pawn,   sq(2, 6)); // c7
-        place(&mut pos, Color::Black, PieceType::Pawn,   sq(4, 6)); // e7
-        place(&mut pos, Color::Black, PieceType::Pawn,   sq(5, 6)); // f7
-        place(&mut pos, Color::Black, PieceType::Pawn,   sq(6, 6)); // g7
-        place(&mut pos, Color::Black, PieceType::Pawn,   sq(7, 6)); // h7
-        place(&mut pos, Color::Black, PieceType::Pawn,   sq(3, 5)); // d6
+        place(&mut pos, Color::Black, PieceType::Rook, sq(7, 7)); // h8
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(1, 6)); // b7
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(2, 6)); // c7
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(4, 6)); // e7
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(5, 6)); // f7
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(6, 6)); // g7
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(7, 6)); // h7
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(3, 5)); // d6
         place(&mut pos, Color::Black, PieceType::Bishop, sq(6, 3)); // g4
-        place(&mut pos, Color::Black, PieceType::Queen,  sq(3, 1)); // d2
+        place(&mut pos, Color::Black, PieceType::Queen, sq(3, 1)); // d2
         // white pieces
-        place(&mut pos, Color::White, PieceType::King,   sq(4, 0)); // e1 (moved to e1 for validity)
-        place(&mut pos, Color::White, PieceType::Pawn,   sq(0, 2)); // a3
-        place(&mut pos, Color::White, PieceType::Pawn,   sq(2, 1)); // c2
-        place(&mut pos, Color::White, PieceType::Pawn,   sq(4, 1)); // e2
-        place(&mut pos, Color::White, PieceType::Pawn,   sq(5, 1)); // f2
-        place(&mut pos, Color::White, PieceType::Pawn,   sq(6, 1)); // g2
-        place(&mut pos, Color::White, PieceType::Pawn,   sq(7, 1)); // h2
+        place(&mut pos, Color::White, PieceType::King, sq(4, 0)); // e1 (moved to e1 for validity)
+        place(&mut pos, Color::White, PieceType::Pawn, sq(0, 2)); // a3
+        place(&mut pos, Color::White, PieceType::Pawn, sq(2, 1)); // c2
+        place(&mut pos, Color::White, PieceType::Pawn, sq(4, 1)); // e2
+        place(&mut pos, Color::White, PieceType::Pawn, sq(5, 1)); // f2
+        place(&mut pos, Color::White, PieceType::Pawn, sq(6, 1)); // g2
+        place(&mut pos, Color::White, PieceType::Pawn, sq(7, 1)); // h2
         place(&mut pos, Color::White, PieceType::Bishop, sq(2, 0)); // c1
-        place(&mut pos, Color::White, PieceType::Queen,  sq(3, 0)); // d1
+        place(&mut pos, Color::White, PieceType::Queen, sq(3, 0)); // d1
         place(&mut pos, Color::White, PieceType::Knight, sq(4, 0)); // e1 conflicts — use f1 instead
         place(&mut pos, Color::White, PieceType::Bishop, sq(5, 0)); // f1
-        place(&mut pos, Color::White, PieceType::Rook,   sq(7, 0)); // h1
+        place(&mut pos, Color::White, PieceType::Rook, sq(7, 0)); // h1
         let moves = MoveGen::generate_moves(pos, &magic());
         let queen_moves: Vec<_> = moves.iter().filter(|m| m.from() == sq(3, 1)).collect();
         assert!(
@@ -863,7 +872,7 @@ mod tests {
         place(&mut pos, Color::White, PieceType::King, sq(0, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(4, 7));
         place(&mut pos, Color::Black, PieceType::Queen, sq(3, 1)); // d2
-        place(&mut pos, Color::Black, PieceType::Pawn, sq(3, 5));  // d6
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(3, 5)); // d6
         let moves = MoveGen::generate_moves(pos, &magic());
         let queen_moves: Vec<_> = moves.iter().filter(|m| m.from() == sq(3, 1)).collect();
         assert!(

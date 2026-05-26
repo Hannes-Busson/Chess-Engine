@@ -7,7 +7,9 @@ mod position;
 mod search;
 #[cfg(test)]
 mod tests;
+mod tt;
 mod uci;
+mod zobrist;
 
 use std::io;
 use std::time::Instant;

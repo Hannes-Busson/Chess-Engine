@@ -75,7 +75,24 @@ pub fn run() {
                         println!("bestmove {}", move_string);
                     }
                 }
-                _ => println!("Command unknown"),
+                _ => {
+                    // let depth: u32 = tokens[2].parse().unwrap();
+                    let best_mv = best_move(game, 8, &table);
+                    let mut coordinates: [char; 4] = [' '; 4];
+                    if let Some(mv) = best_mv {
+                        let from = mv.from();
+                        let to = mv.to();
+                        coordinates[0] = (b'a' + from % 8) as char;
+                        coordinates[1] = (b'1' + from / 8) as char;
+                        coordinates[2] = (b'a' + to % 8) as char;
+                        coordinates[3] = (b'1' + to / 8) as char;
+                        let mut move_string = String::new();
+                        for c in coordinates {
+                            move_string.push(c);
+                        }
+                        println!("bestmove {}", move_string);
+                    }
+                }
             },
             _ => println!("Command unknown"),
         }

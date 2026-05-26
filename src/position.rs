@@ -1,5 +1,6 @@
 use crate::bitboard::Bitboard;
 use crate::movegen::{MagicTable, Move, MoveFlags, MoveGen};
+use crate::zobrist;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(usize)]
@@ -48,10 +49,12 @@ pub struct Position {
     pub side_to_move: Color,
     pub castling: u8,
     pub en_passant: u8,
+    pub hash: u64,
 }
 
 impl Position {
     pub fn start() -> Self {
+        let mut hash = 0u64;
         let mut pieces = [Bitboard(0); 12];
         pieces[Color::White as usize * 6 + PieceType::Pawn as usize] = Bitboard(0x000000000000FF00);
         pieces[Color::Black as usize * 6 + PieceType::Pawn as usize] = Bitboard(0x00FF000000000000);
@@ -80,12 +83,25 @@ impl Position {
                 piece_on[bb.pop_lsb() as usize] = idx as u8;
             }
         }
+
+        for (idx, p) in pieces.iter().enumerate() {
+            let mut piece = *p;
+            while piece.0 != 0 {
+                hash = hash ^ zobrist::keys()[idx * 64 + piece.pop_lsb() as usize];
+            }
+        }
+
+        for i in 0..4 {
+            hash = hash ^ zobrist::keys()[769 + i]
+        }
+
         Position {
             pieces,
             piece_on,
             side_to_move: Color::White,
             castling: CastlingRights::ALL,
             en_passant: 64,
+            hash,
         }
     }
 
@@ -162,6 +178,8 @@ impl Position {
                 result.pieces[piece_idx].set_bit(to);
                 result.piece_on[from as usize] = 64;
                 result.piece_on[to as usize] = piece_idx as u8;
+                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                result.hash ^= zobrist::keys()[piece_idx * 64 + to as usize];
             }
             MoveFlags::CAPTURE => {
                 result.pieces[piece_idx].clear_bit(from);
@@ -169,30 +187,41 @@ impl Position {
                 result.pieces[piece_idx].set_bit(to);
                 result.piece_on[from as usize] = 64;
                 result.piece_on[to as usize] = piece_idx as u8;
+                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                result.hash ^= zobrist::keys()[piece_idx * 64 + to as usize];
+                result.hash ^= zobrist::keys()[opponent_idx * 64 + to as usize];
             }
             MoveFlags::KNIGHT_PROMOTION => {
                 result.pieces[piece_idx].clear_bit(from);
                 result.pieces[(color as usize) * 6 + 1].set_bit(to);
                 result.piece_on[from as usize] = 64;
                 result.piece_on[to as usize] = (color as u8) * 6 + 1;
+                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                result.hash ^= zobrist::keys()[((color as usize) * 6 + 1) * 64 + to as usize];
             }
             MoveFlags::BISHOP_PROMOTION => {
                 result.pieces[piece_idx].clear_bit(from);
                 result.pieces[(color as usize) * 6 + 2].set_bit(to);
                 result.piece_on[from as usize] = 64;
                 result.piece_on[to as usize] = (color as u8) * 6 + 2;
+                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                result.hash ^= zobrist::keys()[((color as usize) * 6 + 2) * 64 + to as usize];
             }
             MoveFlags::ROOK_PROMOTION => {
                 result.pieces[piece_idx].clear_bit(from);
                 result.pieces[(color as usize) * 6 + 3].set_bit(to);
                 result.piece_on[from as usize] = 64;
                 result.piece_on[to as usize] = (color as u8) * 6 + 3;
+                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                result.hash ^= zobrist::keys()[((color as usize) * 6 + 3) * 64 + to as usize];
             }
             MoveFlags::QUEEN_PROMOTION => {
                 result.pieces[piece_idx].clear_bit(from);
                 result.pieces[(color as usize) * 6 + 4].set_bit(to);
                 result.piece_on[from as usize] = 64;
                 result.piece_on[to as usize] = (color as u8) * 6 + 4;
+                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                result.hash ^= zobrist::keys()[((color as usize) * 6 + 4) * 64 + to as usize];
             }
             MoveFlags::KNIGHT_PROMOTION_CAPTURE => {
                 result.pieces[piece_idx].clear_bit(from);
@@ -200,6 +229,9 @@ impl Position {
                 result.pieces[(color as usize) * 6 + 1].set_bit(to);
                 result.piece_on[from as usize] = 64;
                 result.piece_on[to as usize] = (color as u8) * 6 + 1;
+                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                result.hash ^= zobrist::keys()[((color as usize) * 6 + 1) * 64 + to as usize];
+                result.hash ^= zobrist::keys()[opponent_idx * 64 + to as usize];
             }
             MoveFlags::BISHOP_PROMOTION_CAPTURE => {
                 result.pieces[piece_idx].clear_bit(from);
@@ -207,6 +239,9 @@ impl Position {
                 result.pieces[(color as usize) * 6 + 2].set_bit(to);
                 result.piece_on[from as usize] = 64;
                 result.piece_on[to as usize] = (color as u8) * 6 + 2;
+                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                result.hash ^= zobrist::keys()[((color as usize) * 6 + 2) * 64 + to as usize];
+                result.hash ^= zobrist::keys()[opponent_idx * 64 + to as usize];
             }
             MoveFlags::ROOK_PROMOTION_CAPTURE => {
                 result.pieces[piece_idx].clear_bit(from);
@@ -214,6 +249,9 @@ impl Position {
                 result.pieces[(color as usize) * 6 + 3].set_bit(to);
                 result.piece_on[from as usize] = 64;
                 result.piece_on[to as usize] = (color as u8) * 6 + 3;
+                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                result.hash ^= zobrist::keys()[((color as usize) * 6 + 3) * 64 + to as usize];
+                result.hash ^= zobrist::keys()[opponent_idx * 64 + to as usize];
             }
             MoveFlags::QUEEN_PROMOTION_CAPTURE => {
                 result.pieces[piece_idx].clear_bit(from);
@@ -221,6 +259,9 @@ impl Position {
                 result.pieces[(color as usize) * 6 + 4].set_bit(to);
                 result.piece_on[from as usize] = 64;
                 result.piece_on[to as usize] = (color as u8) * 6 + 4;
+                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                result.hash ^= zobrist::keys()[((color as usize) * 6 + 4) * 64 + to as usize];
+                result.hash ^= zobrist::keys()[opponent_idx * 64 + to as usize];
             }
             MoveFlags::KINGSIDE_CASTLE => {
                 result.pieces[(color as usize * 6) + 5].clear_bit((color as u8) * 56 + 4);
@@ -231,6 +272,14 @@ impl Position {
                 result.piece_on[to as usize] = piece_idx as u8;
                 result.piece_on[(color as usize) * 56 + 7] = 64;
                 result.piece_on[(color as usize) * 56 + 5] = (color as u8 * 6) + 3;
+                result.hash ^= zobrist::keys()
+                    [((color as usize) * 6 + 5) * 64 + ((color as u8) * 56 + 4) as usize];
+                result.hash ^= zobrist::keys()
+                    [((color as usize) * 6 + 5) * 64 + ((color as u8) * 56 + 6) as usize];
+                result.hash ^= zobrist::keys()
+                    [((color as usize) * 6 + 3) * 64 + ((color as u8) * 56 + 7) as usize];
+                result.hash ^= zobrist::keys()
+                    [((color as usize) * 6 + 3) * 64 + ((color as u8) * 56 + 5) as usize];
             }
             MoveFlags::QUEENSIDE_CASTLE => {
                 result.pieces[(color as usize * 6) + 5].clear_bit((color as u8) * 56 + 4);
@@ -241,6 +290,14 @@ impl Position {
                 result.piece_on[to as usize] = piece_idx as u8;
                 result.piece_on[(color as usize) * 56 + 0] = 64;
                 result.piece_on[(color as usize) * 56 + 3] = (color as u8 * 6) + 3;
+                result.hash ^= zobrist::keys()
+                    [((color as usize) * 6 + 5) * 64 + ((color as u8) * 56 + 4) as usize];
+                result.hash ^= zobrist::keys()
+                    [((color as usize) * 6 + 5) * 64 + ((color as u8) * 56 + 2) as usize];
+                result.hash ^= zobrist::keys()
+                    [((color as usize) * 6 + 3) * 64 + ((color as u8) * 56 + 0) as usize];
+                result.hash ^= zobrist::keys()
+                    [((color as usize) * 6 + 3) * 64 + ((color as u8) * 56 + 3) as usize];
             }
             MoveFlags::EN_PASSANT => {
                 result.pieces[(color as usize) * 6 + 0].clear_bit(from);
@@ -250,6 +307,10 @@ impl Position {
                 result.piece_on[from as usize] = 64;
                 result.piece_on[to as usize] = piece_idx as u8;
                 result.piece_on[to as usize + (color as usize) * 16 - 8] = 64;
+                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                result.hash ^= zobrist::keys()[piece_idx * 64 + to as usize];
+                result.hash ^=
+                    zobrist::keys()[opponent_idx * 64 + (to as usize + (color as usize) * 16 - 8)];
             }
             MoveFlags::DOUBLE_PAWN_PUSH => {
                 result.pieces[piece_idx].clear_bit(from);
@@ -257,9 +318,25 @@ impl Position {
                 result.en_passant = from + 8 - (color as u8) * 16;
                 result.piece_on[from as usize] = 64;
                 result.piece_on[to as usize] = piece_idx as u8;
+                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                result.hash ^= zobrist::keys()[piece_idx * 64 + to as usize];
             }
             6_u8..=7_u8 | 16_u8..=u8::MAX => {}
         }
+
+        result.hash ^= zobrist::keys()[768];
+        for i in 0..4 {
+            if (self.castling >> i) & 1 != 0 {
+                result.hash = zobrist::keys()[769 + i];
+            }
+        }
+        if self.en_passant != 64 {
+            result.hash = zobrist::keys()[773 + (self.en_passant % 8) as usize];
+        }
+        if result.en_passant != 64 {
+            result.hash = zobrist::keys()[773 + (self.en_passant % 8) as usize];
+        }
+
         result.side_to_move = self.opponent();
         result
     }
