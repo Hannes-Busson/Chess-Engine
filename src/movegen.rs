@@ -758,6 +758,90 @@ impl MoveGen {
         result
     }
 
+    pub fn generate_captures(position: Position, table: &MagicTable) -> Vec<Move> {
+        let mut result: Vec<Move> = Vec::with_capacity(64);
+        let color = position.side_to_move;
+        let own_pieces = position.occupancy_for(color);
+        let all_pieces = position.occupancy();
+        let enemy_pieces = all_pieces & !own_pieces;
+        // knights
+        let mut knights = *position.get_piece_bitboard(color, PieceType::Knight);
+        while !knights.is_empty() {
+            let from = knights.pop_lsb();
+            let mut attacks = MoveGen::knight_attacks(from) & enemy_pieces;
+            while !attacks.is_empty() {
+                result.push(Move::new(from, attacks.pop_lsb(), MoveFlags::CAPTURE));
+            }
+        }
+        // king
+        let mut king = *position.get_piece_bitboard(color, PieceType::King);
+        let from = king.pop_lsb();
+        let mut attacks = MoveGen::king_attacks(from) & enemy_pieces;
+        while !attacks.is_empty() {
+            result.push(Move::new(from, attacks.pop_lsb(), MoveFlags::CAPTURE));
+        }
+        // whites
+        // bishops
+        let mut bishops = *position.get_piece_bitboard(color, PieceType::Bishop);
+        while !bishops.is_empty() {
+            let from = bishops.pop_lsb();
+            let mut attacks = MoveGen::bishop_attacks(from, all_pieces, table) & enemy_pieces;
+            while !attacks.is_empty() {
+                result.push(Move::new(from, attacks.pop_lsb(), MoveFlags::CAPTURE));
+            }
+        }
+        // rooks
+        let mut rooks = *position.get_piece_bitboard(color, PieceType::Rook);
+        while !rooks.is_empty() {
+            let from = rooks.pop_lsb();
+            let mut attacks = MoveGen::rook_attacks(from, all_pieces, table) & enemy_pieces;
+            while !attacks.is_empty() {
+                result.push(Move::new(from, attacks.pop_lsb(), MoveFlags::CAPTURE));
+            }
+        }
+        // queens
+        let mut queens = *position.get_piece_bitboard(color, PieceType::Queen);
+        while !queens.is_empty() {
+            let from = queens.pop_lsb();
+            let mut attacks = MoveGen::queen_attacks(from, all_pieces, table) & enemy_pieces;
+            while !attacks.is_empty() {
+                result.push(Move::new(from, attacks.pop_lsb(), MoveFlags::CAPTURE));
+            }
+        }
+        // pawns
+        let ep_bb = Bitboard(if position.en_passant != 64 {
+            1u64 << position.en_passant
+        } else {
+            0
+        });
+        let promotion_rank = if color == Color::White {
+            Ranks::RANK_8
+        } else {
+            Ranks::RANK_1
+        };
+        let mut pawns = *position.get_piece_bitboard(color, PieceType::Pawn);
+        while !pawns.is_empty() {
+            let from = pawns.pop_lsb();
+            let mut attacks = MoveGen::pawn_attacks(from, color) & (enemy_pieces | ep_bb);
+            while !attacks.is_empty() {
+                let to = attacks.pop_lsb();
+                if ep_bb.0 != 0 && to == position.en_passant {
+                    result.push(Move::new(from, to, MoveFlags::EN_PASSANT));
+                } else {
+                    if promotion_rank.get_bit(to) {
+                        result.push(Move::new(from, to, MoveFlags::KNIGHT_PROMOTION_CAPTURE));
+                        result.push(Move::new(from, to, MoveFlags::BISHOP_PROMOTION_CAPTURE));
+                        result.push(Move::new(from, to, MoveFlags::ROOK_PROMOTION_CAPTURE));
+                        result.push(Move::new(from, to, MoveFlags::QUEEN_PROMOTION_CAPTURE));
+                    } else {
+                        result.push(Move::new(from, to, MoveFlags::CAPTURE));
+                    }
+                }
+            }
+        }
+        result
+    }
+
     pub fn is_attacked(square: u8, position: &Position, table: &MagicTable) -> bool {
         let occupancy = position.occupancy();
         let color = position.side_to_move;
@@ -781,9 +865,27 @@ impl MoveGen {
     }
 
     pub fn generate_legal_moves(position: Position, table: &MagicTable) -> Vec<Move> {
-        let mut result: Vec<Move> = Vec::new();
+        let mut result: Vec<Move> = Vec::with_capacity(64);
         let color = position.side_to_move;
         let pseudo = MoveGen::generate_moves(position, table);
+        for m in pseudo {
+            let mut new_position = position.make_move(m);
+            let king_sq = new_position
+                .get_piece_bitboard(color, PieceType::King)
+                .0
+                .trailing_zeros() as u8;
+            new_position.side_to_move = color;
+            if !MoveGen::is_attacked(king_sq, &new_position, table) {
+                result.push(m);
+            }
+        }
+        result
+    }
+
+    pub fn generate_legal_captures(position: Position, table: &MagicTable) -> Vec<Move> {
+        let mut result: Vec<Move> = Vec::with_capacity(64);
+        let color = position.side_to_move;
+        let pseudo = MoveGen::generate_captures(position, table);
         for m in pseudo {
             let mut new_position = position.make_move(m);
             let king_sq = new_position

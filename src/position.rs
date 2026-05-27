@@ -325,6 +325,11 @@ impl Position {
                 result.hash ^= zobrist::keys()[769 + i];
             }
         }
+        for i in 0..4 {
+            if (result.castling >> i) & 1 != 0 {
+                result.hash ^= zobrist::keys()[769 + i];
+            }
+        }
         if self.en_passant != 64 {
             result.hash ^= zobrist::keys()[773 + (self.en_passant % 8) as usize];
         }
@@ -340,7 +345,11 @@ impl Position {
         MoveGen::generate_legal_moves(self, table)
     }
 
-    pub fn king_under_attack(mut self, table: &MagicTable) -> bool {
+    pub fn all_captures(self, table: &MagicTable) -> Vec<Move> {
+        MoveGen::generate_legal_captures(self, table)
+    }
+
+    pub fn king_under_attack(&self, table: &MagicTable) -> bool {
         MoveGen::is_attacked(
             self.pieces[(self.side_to_move as u8 * 6 + 5) as usize]
                 .0
