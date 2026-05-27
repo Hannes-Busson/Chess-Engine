@@ -67,7 +67,7 @@ pub fn run() {
                     }
                 }
                 _ => {
-                    let best_mv = best_move(game, 9, &table, &mut t_table);
+                    let best_mv = best_move(game, 7, &table, &mut t_table);
                     if let Some(mv) = best_mv {
                         println!("bestmove {}", mv_to_string(mv));
                     }

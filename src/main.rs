@@ -55,7 +55,7 @@ pub fn game() {
             io::stdin().read_line(&mut move_string);
             if move_string.len() == 5 {
                 for i in 0..4 {
-                    coordinates[i] = move_string.chars().nth(i).unwrap();
+                    coordinates[i] = move_string.as_bytes()[i] as char;
                 }
                 let file_from = file_to_number(coordinates[0]);
                 let file_to = file_to_number(coordinates[2]);

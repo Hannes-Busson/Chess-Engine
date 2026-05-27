@@ -16,12 +16,7 @@ pub fn negamax(
     t_table: &mut TransponationTable,
 ) -> i32 {
     if depth == 0 {
-        return evaluate_for_white(&position)
-            * if position.side_to_move == Color::White {
-                1
-            } else {
-                -1
-            };
+        return quienscence(position, alpha, beta, table);
     }
     if let Some(t) = t_table.lookup(position.hash, depth as u8, alpha, beta) {
         return t;
@@ -119,4 +114,33 @@ pub fn move_score(position: &Position, mv: &Move) -> i32 {
         MoveFlags::EN_PASSANT => base + PIECE_VALUES[0] - PIECE_VALUES[0] as i32,
         _ => 0i32,
     }
+}
+
+pub fn quienscence(position: Position, mut alpha: i32, beta: i32, table: &MagicTable) -> i32 {
+    let stand_pat = evaluate_for_white(&position)
+        * if position.side_to_move == Color::White {
+            1
+        } else {
+            -1
+        };
+    if stand_pat >= beta {
+        return beta;
+    }
+    if stand_pat > alpha {
+        alpha = stand_pat;
+    }
+    let all_captures = position
+        .all_moves(table)
+        .into_iter()
+        .filter(|mv| mv.flags() >= 4 && mv.flags() <= 15);
+    for c in all_captures {
+        let score = -quienscence(position.make_move(c), -beta, -alpha, table);
+        if score >= beta {
+            return beta;
+        }
+        if score > alpha {
+            alpha = score;
+        }
+    }
+    alpha
 }

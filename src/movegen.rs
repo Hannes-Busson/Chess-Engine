@@ -515,8 +515,7 @@ impl MoveGen {
     }
 
     pub fn bishop_attacks(square: u8, occupancy: Bitboard, table: &MagicTable) -> Bitboard {
-        let mut result = Bitboard(0);
-        result = occupancy & table.bishop_masks[square as usize];
+        let mut result = occupancy & table.bishop_masks[square as usize];
         let index = (result.0.wrapping_mul(table.bishop_magics[square as usize])
             >> table.bishop_shifts[square as usize]) as usize;
         result = table.bishop_attacks[square as usize][index];
@@ -579,8 +578,7 @@ impl MoveGen {
     }
 
     pub fn rook_attacks(square: u8, occupancy: Bitboard, table: &MagicTable) -> Bitboard {
-        let mut result = Bitboard(0);
-        result = occupancy & table.rook_masks[square as usize];
+        let mut result = occupancy & table.rook_masks[square as usize];
         let index = (result.0.wrapping_mul(table.rook_magics[square as usize])
             >> table.rook_shifts[square as usize]) as usize;
         result = table.rook_attacks[square as usize][index];
