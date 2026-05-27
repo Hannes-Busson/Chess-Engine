@@ -63,26 +63,27 @@ pub fn best_move(
     table: &MagicTable,
     t_table: &mut TransponationTable,
 ) -> Option<Move> {
-    if depth == 0 {
-        return None;
-    }
     let mut result: Option<Move> = None;
     let mut legal_moves = position.all_moves(table);
-    let mut highest_score = -1000000;
     legal_moves.sort_by_key(|mv| -move_score(&position, mv));
-    for mv in legal_moves {
-        let score = -negamax(
-            position.make_move(mv),
-            depth - 1,
-            -1000000i32,
-            -highest_score,
-            table,
-            t_table,
-        );
-        if score > highest_score {
-            highest_score = score;
-            result = Some(mv);
+    for d in 1..depth + 1 {
+        let mut partial_result = None;
+        let mut highest_score = -1000000;
+        for mv in &legal_moves {
+            let score = -negamax(
+                position.make_move(*mv),
+                d - 1,
+                -1000000i32,
+                -highest_score,
+                table,
+                t_table,
+            );
+            if score > highest_score {
+                highest_score = score;
+                partial_result = Some(*mv);
+            }
         }
+        result = partial_result;
     }
     result
 }
