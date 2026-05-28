@@ -15,9 +15,7 @@ use std::io;
 use std::time::Instant;
 
 use crate::game::Game;
-use bitboard::Bitboard;
-use movegen::{Move, MoveFlags, MoveGen};
-use position::{Color, PieceType, Position};
+use position::Color;
 
 use crate::movegen::MagicTable;
 

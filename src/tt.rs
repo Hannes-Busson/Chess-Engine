@@ -29,7 +29,8 @@ impl TransponationTable {
     }
 
     pub fn store(&mut self, hash: u64, score: i32, depth: u8, flag: u8, best_move: u16) {
-        if self.vault[hash as usize & SHIFT].depth <= depth {
+        let existing = &self.vault[hash as usize & SHIFT];
+        if existing.hash != hash || depth >= existing.depth {
             self.vault[hash as usize & SHIFT] = TTEntry {
                 hash,
                 score,
@@ -72,5 +73,15 @@ impl TransponationTable {
             return Some(entry.best_move);
         }
         None
+    }
+
+    pub fn stats(&self) {
+        let filled = self.vault.iter().filter(|entry| entry.hash != 0).count();
+        eprintln!(
+            "TT filled: {}/{} ({:.1}%)",
+            filled,
+            1 << 22,
+            filled as f64 / (1 << 22) as f64 * 100.0
+        );
     }
 }

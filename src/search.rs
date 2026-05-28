@@ -13,6 +13,7 @@ static TT_COLLISIONS: AtomicU64 = AtomicU64::new(0);
 static BETA_CUTOFFS: AtomicU64 = AtomicU64::new(0);
 static NULL_MOVE_CUTOFFS: AtomicU64 = AtomicU64::new(0);
 static QUIESCENCE_CALLS: AtomicU64 = AtomicU64::new(0);
+static STORE_CALLS: AtomicU64 = AtomicU64::new(0);
 
 pub fn negamax(
     position: Position,
@@ -24,7 +25,7 @@ pub fn negamax(
 ) -> i32 {
     NEGAMAX_CALLS.fetch_add(1, Ordering::Relaxed);
     if depth == 0 {
-        return quienscence(position, alpha, beta, table, 4);
+        return quienscence(position, alpha, beta, table, 4, t_table);
     }
     if t_table.vault[position.hash as usize & tt::SHIFT].hash != position.hash {
         TT_COLLISIONS.fetch_add(1, Ordering::Relaxed);
@@ -43,14 +44,19 @@ pub fn negamax(
         null_pos.hash ^= zobrist::keys()[768];
         if -negamax(null_pos, depth - 3, -beta, -beta + 1, table, t_table) >= beta {
             NULL_MOVE_CUTOFFS.fetch_add(1, Ordering::Relaxed);
+            STORE_CALLS.fetch_add(1, Ordering::Relaxed);
+            t_table.store(position.hash, beta, depth as u8, 2, 0);
             return beta;
         }
     }
     let mut legal_moves = position.all_moves(table);
     if legal_moves.is_empty() {
+        STORE_CALLS.fetch_add(1, Ordering::Relaxed);
         if position.king_under_attack(table) {
+            t_table.store(position.hash, -1000000, depth as u8, 0, 0);
             return -1000000;
         } else {
+            t_table.store(position.hash, 0, depth as u8, 0, 0);
             return 0;
         }
     }
@@ -77,10 +83,13 @@ pub fn negamax(
         }
     }
     if alpha >= beta {
+        STORE_CALLS.fetch_add(1, Ordering::Relaxed);
         t_table.store(position.hash, alpha, depth as u8, 2, best_move);
     } else if alpha > original_alpha {
+        STORE_CALLS.fetch_add(1, Ordering::Relaxed);
         t_table.store(position.hash, alpha, depth as u8, 0, best_move);
     } else {
+        STORE_CALLS.fetch_add(1, Ordering::Relaxed);
         t_table.store(position.hash, alpha, depth as u8, 1, best_move);
     }
     alpha
@@ -114,6 +123,7 @@ pub fn best_move(
             }
         }
         if let Some(mv) = partial_result {
+            STORE_CALLS.fetch_add(1, Ordering::Relaxed);
             t_table.store(position.hash, highest_score, d as u8, 0, mv.value);
         }
         result = partial_result;
@@ -124,6 +134,8 @@ pub fn best_move(
     eprintln!("{}", BETA_CUTOFFS.load(Ordering::Relaxed));
     eprintln!("{}", NULL_MOVE_CUTOFFS.load(Ordering::Relaxed));
     eprintln!("{}", QUIESCENCE_CALLS.load(Ordering::Relaxed));
+    eprintln!("{}", STORE_CALLS.load(Ordering::Relaxed));
+    t_table.stats();
     result
 }
 
@@ -155,6 +167,10 @@ pub fn move_score(position: &Position, mv: &Move, tt_move: u16) -> i32 {
             base + PIECE_VALUES[(piece_on_to) as usize] - PIECE_VALUES[0] as i32
         }
         MoveFlags::EN_PASSANT => base + PIECE_VALUES[0] - PIECE_VALUES[0] as i32,
+        MoveFlags::QUEEN_PROMOTION | MoveFlags::ROOK_PROMOTION => 8000,
+        MoveFlags::QUEENSIDE_CASTLE | MoveFlags::KINGSIDE_CASTLE => 6000,
+        MoveFlags::KNIGHT_PROMOTION | MoveFlags::BISHOP_PROMOTION => 5000,
+        MoveFlags::DOUBLE_PAWN_PUSH => 100,
         _ => 0i32,
     }
 }
@@ -165,6 +181,7 @@ pub fn quienscence(
     beta: i32,
     table: &MagicTable,
     qdepth: i32,
+    t_table: &mut TransponationTable,
 ) -> i32 {
     QUIESCENCE_CALLS.fetch_add(1, Ordering::Relaxed);
     let stand_pat = evaluate_for_white(&position)
@@ -173,10 +190,19 @@ pub fn quienscence(
         } else {
             -1
         };
+    if let Some(t) = t_table.lookup(position.hash, 0, alpha, beta) {
+        TT_HITS.fetch_add(1, Ordering::Relaxed);
+        return t;
+    }
+    let original_alpha = alpha;
     if qdepth <= 0 {
+        STORE_CALLS.fetch_add(1, Ordering::Relaxed);
+        t_table.store(position.hash, stand_pat, 0, 1, 0);
         return stand_pat;
     }
     if stand_pat >= beta {
+        STORE_CALLS.fetch_add(1, Ordering::Relaxed);
+        t_table.store(position.hash, stand_pat, 0, 2, 0);
         return beta;
     }
     if stand_pat > alpha {
@@ -184,13 +210,28 @@ pub fn quienscence(
     }
     let all_captures = position.all_captures(table);
     for c in all_captures {
-        let score = -quienscence(position.make_move(c), -beta, -alpha, table, qdepth - 1);
+        let score = -quienscence(
+            position.make_move(c),
+            -beta,
+            -alpha,
+            table,
+            qdepth - 1,
+            t_table,
+        );
         if score >= beta {
+            STORE_CALLS.fetch_add(1, Ordering::Relaxed);
+            t_table.store(position.hash, beta, 0, 2, 0);
             return beta;
         }
         if score > alpha {
             alpha = score;
         }
+    }
+    STORE_CALLS.fetch_add(1, Ordering::Relaxed);
+    if alpha > original_alpha {
+        t_table.store(position.hash, alpha, 0, 0, 0);
+    } else {
+        t_table.store(position.hash, alpha, 0, 1, 0);
     }
     alpha
 }

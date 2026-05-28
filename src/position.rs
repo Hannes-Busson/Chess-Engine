@@ -50,6 +50,8 @@ pub struct Position {
     pub castling: u8,
     pub en_passant: u8,
     pub hash: u64,
+    pub occ: Bitboard,
+    pub occ_by: [Bitboard; 2],
 }
 
 impl Position {
@@ -90,6 +92,16 @@ impl Position {
             hash = hash ^ zobrist::keys()[769 + i]
         }
 
+        let mut occ = Bitboard(0);
+        for p in &pieces {
+            occ = occ | *p;
+        }
+        let mut occ_white = Bitboard(0);
+        for i in 0..6 {
+            occ_white = occ_white | pieces[i];
+        }
+        let occ_by = [occ_white, occ & !occ_white];
+
         Position {
             pieces,
             piece_on,
@@ -97,6 +109,8 @@ impl Position {
             castling: CastlingRights::ALL,
             en_passant: 64,
             hash,
+            occ,
+            occ_by,
         }
     }
 
@@ -336,6 +350,16 @@ impl Position {
         if result.en_passant != 64 {
             result.hash ^= zobrist::keys()[773 + (result.en_passant % 8) as usize];
         }
+
+        result.occ = Bitboard(0);
+        for p in &result.pieces {
+            result.occ = result.occ | *p;
+        }
+        let mut occ_white = Bitboard(0);
+        for i in 0..6 {
+            occ_white = occ_white | result.pieces[i];
+        }
+        result.occ_by = [occ_white, result.occ & !occ_white];
 
         result.side_to_move = self.opponent();
         result

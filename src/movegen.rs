@@ -1,9 +1,9 @@
 use std::vec;
 
-use crate::bitboard::{self, Bitboard};
+use crate::bitboard::Bitboard;
 use crate::masks::Files;
 use crate::masks::Ranks;
-use crate::position::{self, CastlingRights, Color, PieceType, Position};
+use crate::position::{CastlingRights, Color, PieceType, Position};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Move {
@@ -43,6 +43,30 @@ impl MoveFlags {
     pub const BISHOP_PROMOTION_CAPTURE: u8 = 13;
     pub const ROOK_PROMOTION_CAPTURE: u8 = 14;
     pub const QUEEN_PROMOTION_CAPTURE: u8 = 15;
+}
+
+pub struct MoveList {
+    pub moves: [Move; 256],
+    pub len: u16,
+}
+
+impl MoveList {
+    pub fn new() -> Self {
+        MoveList {
+            moves: [Move { value: 0 }; 256],
+            len: 0,
+        }
+    }
+    pub fn push(&mut self, mv: Move) {
+        self.moves[self.len as usize] = mv;
+        self.len += 1;
+    }
+    pub fn as_slice(&self) -> &[Move] {
+        &self.moves[..self.len as usize]
+    }
+    pub fn as_mut_slice(&mut self) -> &mut [Move] {
+        &mut self.moves[..self.len as usize]
+    }
 }
 
 const fn knight_attacks_u64(sq: u8) -> u64 {
@@ -94,7 +118,6 @@ pub fn bishop_mask(sq: u8) -> Bitboard {
     let mut se = Bitboard(0);
     let mut sw = Bitboard(0);
     let mut nw = Bitboard(0);
-    let mut result = Bitboard(0);
     // NE
     loop {
         moveable = (moveable & !Files::FILE_H) << 9;
@@ -130,11 +153,10 @@ pub fn bishop_mask(sq: u8) -> Bitboard {
             break;
         }
     }
-    result = ne & !(Ranks::RANK_8 | Files::FILE_H)
+    ne & !(Ranks::RANK_8 | Files::FILE_H)
         | se & !(Files::FILE_H | Ranks::RANK_1)
         | sw & !(Ranks::RANK_1 | Files::FILE_A)
-        | nw & !(Files::FILE_A | Ranks::RANK_8);
-    result
+        | nw & !(Files::FILE_A | Ranks::RANK_8)
 }
 
 pub fn rook_mask(sq: u8) -> Bitboard {
@@ -145,7 +167,6 @@ pub fn rook_mask(sq: u8) -> Bitboard {
     let mut east = Bitboard(0);
     let mut south = Bitboard(0);
     let mut west = Bitboard(0);
-    let mut result = Bitboard(0);
     // N
     loop {
         moveable = moveable << 8;
@@ -181,11 +202,7 @@ pub fn rook_mask(sq: u8) -> Bitboard {
             break;
         }
     }
-    result = north & !Ranks::RANK_8
-        | east & !Files::FILE_H
-        | south & !Ranks::RANK_1
-        | west & !Files::FILE_A;
-    result
+    north & !Ranks::RANK_8 | east & !Files::FILE_H | south & !Ranks::RANK_1 | west & !Files::FILE_A
 }
 
 const KNIGHT_ATTACKS: [Bitboard; 64] = {
@@ -442,7 +459,7 @@ impl MoveGen {
     }
 
     pub fn generate_pawn_moves(square: u8, occupancy: Bitboard, color: Color) -> Bitboard {
-        let mut result = Bitboard(0);
+        let mut result;
         let mut position = Bitboard(0);
         position.set_bit(square);
         if color == Color::White {
@@ -593,8 +610,8 @@ impl MoveGen {
     pub fn generate_moves(position: Position, table: &MagicTable) -> Vec<Move> {
         let mut result: Vec<Move> = Vec::with_capacity(64);
         let color = position.side_to_move;
-        let own_pieces = position.occupancy_for(color);
-        let all_pieces = position.occupancy();
+        let own_pieces = position.occ_by[color as usize];
+        let all_pieces = position.occ;
         let enemy_pieces = all_pieces & !own_pieces;
         // knights
         let mut knights = *position.get_piece_bitboard(color, PieceType::Knight);
@@ -761,8 +778,8 @@ impl MoveGen {
     pub fn generate_captures(position: Position, table: &MagicTable) -> Vec<Move> {
         let mut result: Vec<Move> = Vec::with_capacity(64);
         let color = position.side_to_move;
-        let own_pieces = position.occupancy_for(color);
-        let all_pieces = position.occupancy();
+        let own_pieces = position.occ_by[color as usize];
+        let all_pieces = position.occ;
         let enemy_pieces = all_pieces & !own_pieces;
         // knights
         let mut knights = *position.get_piece_bitboard(color, PieceType::Knight);
@@ -843,7 +860,7 @@ impl MoveGen {
     }
 
     pub fn is_attacked(square: u8, position: &Position, table: &MagicTable) -> bool {
-        let occupancy = position.occupancy();
+        let occupancy = position.occ;
         let color = position.side_to_move;
         let opponent_color = position.opponent();
         let diagonals = MoveGen::bishop_attacks(square, occupancy, table);

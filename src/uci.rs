@@ -1,7 +1,7 @@
 use crate::{
     file_to_number,
     movegen::{MagicTable, Move},
-    position::{self, Position},
+    position::Position,
     search::best_move,
     tt::TransponationTable,
 };
