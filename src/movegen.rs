@@ -607,8 +607,7 @@ impl MoveGen {
             | MoveGen::rook_attacks(square, occupancy, table)
     }
 
-    pub fn generate_moves(position: Position, table: &MagicTable) -> Vec<Move> {
-        let mut result: Vec<Move> = Vec::with_capacity(64);
+    pub fn generate_moves(position: &Position, table: &MagicTable, list: &mut MoveList) {
         let color = position.side_to_move;
         let own_pieces = position.occ_by[color as usize];
         let all_pieces = position.occ;
@@ -621,9 +620,9 @@ impl MoveGen {
             while !attacks.is_empty() {
                 let to = attacks.pop_lsb();
                 if all_pieces.get_bit(to) {
-                    result.push(Move::new(from, to, MoveFlags::CAPTURE));
+                    list.push(Move::new(from, to, MoveFlags::CAPTURE));
                 } else {
-                    result.push(Move::new(from, to, MoveFlags::QUIET));
+                    list.push(Move::new(from, to, MoveFlags::QUIET));
                 }
             }
         }
@@ -634,9 +633,9 @@ impl MoveGen {
         while !attacks.is_empty() {
             let to = attacks.pop_lsb();
             if all_pieces.get_bit(to) {
-                result.push(Move::new(from, to, MoveFlags::CAPTURE));
+                list.push(Move::new(from, to, MoveFlags::CAPTURE));
             } else {
-                result.push(Move::new(from, to, MoveFlags::QUIET));
+                list.push(Move::new(from, to, MoveFlags::QUIET));
             }
         }
         // white
@@ -645,44 +644,44 @@ impl MoveGen {
             if position.castling & CastlingRights::WK != 0
                 && !all_pieces.get_bit(5)
                 && !all_pieces.get_bit(6)
-                && !MoveGen::is_attacked(4, &position, table)
-                && !MoveGen::is_attacked(5, &position, table)
-                && !MoveGen::is_attacked(6, &position, table)
+                && !MoveGen::is_attacked(color, 4, &position, table)
+                && !MoveGen::is_attacked(color, 5, &position, table)
+                && !MoveGen::is_attacked(color, 6, &position, table)
             {
-                result.push(Move::new(4, 6, MoveFlags::KINGSIDE_CASTLE));
+                list.push(Move::new(4, 6, MoveFlags::KINGSIDE_CASTLE));
             }
             // queenside castle
             if position.castling & CastlingRights::WQ != 0
                 && !all_pieces.get_bit(1)
                 && !all_pieces.get_bit(2)
                 && !all_pieces.get_bit(3)
-                && !MoveGen::is_attacked(2, &position, table)
-                && !MoveGen::is_attacked(3, &position, table)
-                && !MoveGen::is_attacked(4, &position, table)
+                && !MoveGen::is_attacked(color, 2, &position, table)
+                && !MoveGen::is_attacked(color, 3, &position, table)
+                && !MoveGen::is_attacked(color, 4, &position, table)
             {
-                result.push(Move::new(4, 2, MoveFlags::QUEENSIDE_CASTLE));
+                list.push(Move::new(4, 2, MoveFlags::QUEENSIDE_CASTLE));
             }
         } else {
             // kingside castle
             if position.castling & CastlingRights::BK != 0
                 && !all_pieces.get_bit(61)
                 && !all_pieces.get_bit(62)
-                && !MoveGen::is_attacked(60, &position, table)
-                && !MoveGen::is_attacked(61, &position, table)
-                && !MoveGen::is_attacked(62, &position, table)
+                && !MoveGen::is_attacked(color, 60, &position, table)
+                && !MoveGen::is_attacked(color, 61, &position, table)
+                && !MoveGen::is_attacked(color, 62, &position, table)
             {
-                result.push(Move::new(60, 62, MoveFlags::KINGSIDE_CASTLE));
+                list.push(Move::new(60, 62, MoveFlags::KINGSIDE_CASTLE));
             }
             // queenside castle
             if position.castling & CastlingRights::BQ != 0
                 && !all_pieces.get_bit(57)
                 && !all_pieces.get_bit(58)
                 && !all_pieces.get_bit(59)
-                && !MoveGen::is_attacked(58, &position, table)
-                && !MoveGen::is_attacked(59, &position, table)
-                && !MoveGen::is_attacked(60, &position, table)
+                && !MoveGen::is_attacked(color, 58, &position, table)
+                && !MoveGen::is_attacked(color, 59, &position, table)
+                && !MoveGen::is_attacked(color, 60, &position, table)
             {
-                result.push(Move::new(60, 58, MoveFlags::QUEENSIDE_CASTLE));
+                list.push(Move::new(60, 58, MoveFlags::QUEENSIDE_CASTLE));
             }
         }
         // bishops
@@ -693,9 +692,9 @@ impl MoveGen {
             while !attacks.is_empty() {
                 let to = attacks.pop_lsb();
                 if all_pieces.get_bit(to) {
-                    result.push(Move::new(from, to, MoveFlags::CAPTURE));
+                    list.push(Move::new(from, to, MoveFlags::CAPTURE));
                 } else {
-                    result.push(Move::new(from, to, MoveFlags::QUIET));
+                    list.push(Move::new(from, to, MoveFlags::QUIET));
                 }
             }
         }
@@ -707,9 +706,9 @@ impl MoveGen {
             while !attacks.is_empty() {
                 let to = attacks.pop_lsb();
                 if all_pieces.get_bit(to) {
-                    result.push(Move::new(from, to, MoveFlags::CAPTURE));
+                    list.push(Move::new(from, to, MoveFlags::CAPTURE));
                 } else {
-                    result.push(Move::new(from, to, MoveFlags::QUIET));
+                    list.push(Move::new(from, to, MoveFlags::QUIET));
                 }
             }
         }
@@ -721,9 +720,9 @@ impl MoveGen {
             while !attacks.is_empty() {
                 let to = attacks.pop_lsb();
                 if all_pieces.get_bit(to) {
-                    result.push(Move::new(from, to, MoveFlags::CAPTURE));
+                    list.push(Move::new(from, to, MoveFlags::CAPTURE));
                 } else {
-                    result.push(Move::new(from, to, MoveFlags::QUIET));
+                    list.push(Move::new(from, to, MoveFlags::QUIET));
                 }
             }
         }
@@ -746,37 +745,35 @@ impl MoveGen {
             while !attacks.is_empty() {
                 let to = attacks.pop_lsb();
                 if ep_bb.0 != 0 && to == position.en_passant {
-                    result.push(Move::new(from, to, MoveFlags::EN_PASSANT));
+                    list.push(Move::new(from, to, MoveFlags::EN_PASSANT));
                 } else {
                     if promotion_rank.get_bit(to) {
-                        result.push(Move::new(from, to, MoveFlags::KNIGHT_PROMOTION_CAPTURE));
-                        result.push(Move::new(from, to, MoveFlags::BISHOP_PROMOTION_CAPTURE));
-                        result.push(Move::new(from, to, MoveFlags::ROOK_PROMOTION_CAPTURE));
-                        result.push(Move::new(from, to, MoveFlags::QUEEN_PROMOTION_CAPTURE));
+                        list.push(Move::new(from, to, MoveFlags::KNIGHT_PROMOTION_CAPTURE));
+                        list.push(Move::new(from, to, MoveFlags::BISHOP_PROMOTION_CAPTURE));
+                        list.push(Move::new(from, to, MoveFlags::ROOK_PROMOTION_CAPTURE));
+                        list.push(Move::new(from, to, MoveFlags::QUEEN_PROMOTION_CAPTURE));
                     } else {
-                        result.push(Move::new(from, to, MoveFlags::CAPTURE));
+                        list.push(Move::new(from, to, MoveFlags::CAPTURE));
                     }
                 }
             }
             while !moves.is_empty() {
                 let to = moves.pop_lsb();
                 if promotion_rank.get_bit(to) {
-                    result.push(Move::new(from, to, MoveFlags::KNIGHT_PROMOTION));
-                    result.push(Move::new(from, to, MoveFlags::BISHOP_PROMOTION));
-                    result.push(Move::new(from, to, MoveFlags::ROOK_PROMOTION));
-                    result.push(Move::new(from, to, MoveFlags::QUEEN_PROMOTION));
+                    list.push(Move::new(from, to, MoveFlags::KNIGHT_PROMOTION));
+                    list.push(Move::new(from, to, MoveFlags::BISHOP_PROMOTION));
+                    list.push(Move::new(from, to, MoveFlags::ROOK_PROMOTION));
+                    list.push(Move::new(from, to, MoveFlags::QUEEN_PROMOTION));
                 } else if to.abs_diff(from) == 16 {
-                    result.push(Move::new(from, to, MoveFlags::DOUBLE_PAWN_PUSH));
+                    list.push(Move::new(from, to, MoveFlags::DOUBLE_PAWN_PUSH));
                 } else {
-                    result.push(Move::new(from, to, MoveFlags::QUIET));
+                    list.push(Move::new(from, to, MoveFlags::QUIET));
                 }
             }
         }
-        result
     }
 
-    pub fn generate_captures(position: Position, table: &MagicTable) -> Vec<Move> {
-        let mut result: Vec<Move> = Vec::with_capacity(64);
+    pub fn generate_captures(position: &Position, table: &MagicTable, list: &mut MoveList) {
         let color = position.side_to_move;
         let own_pieces = position.occ_by[color as usize];
         let all_pieces = position.occ;
@@ -787,7 +784,7 @@ impl MoveGen {
             let from = knights.pop_lsb();
             let mut attacks = MoveGen::knight_attacks(from) & enemy_pieces;
             while !attacks.is_empty() {
-                result.push(Move::new(from, attacks.pop_lsb(), MoveFlags::CAPTURE));
+                list.push(Move::new(from, attacks.pop_lsb(), MoveFlags::CAPTURE));
             }
         }
         // king
@@ -795,7 +792,7 @@ impl MoveGen {
         let from = king.pop_lsb();
         let mut attacks = MoveGen::king_attacks(from) & enemy_pieces;
         while !attacks.is_empty() {
-            result.push(Move::new(from, attacks.pop_lsb(), MoveFlags::CAPTURE));
+            list.push(Move::new(from, attacks.pop_lsb(), MoveFlags::CAPTURE));
         }
         // whites
         // bishops
@@ -804,7 +801,7 @@ impl MoveGen {
             let from = bishops.pop_lsb();
             let mut attacks = MoveGen::bishop_attacks(from, all_pieces, table) & enemy_pieces;
             while !attacks.is_empty() {
-                result.push(Move::new(from, attacks.pop_lsb(), MoveFlags::CAPTURE));
+                list.push(Move::new(from, attacks.pop_lsb(), MoveFlags::CAPTURE));
             }
         }
         // rooks
@@ -813,7 +810,7 @@ impl MoveGen {
             let from = rooks.pop_lsb();
             let mut attacks = MoveGen::rook_attacks(from, all_pieces, table) & enemy_pieces;
             while !attacks.is_empty() {
-                result.push(Move::new(from, attacks.pop_lsb(), MoveFlags::CAPTURE));
+                list.push(Move::new(from, attacks.pop_lsb(), MoveFlags::CAPTURE));
             }
         }
         // queens
@@ -822,7 +819,7 @@ impl MoveGen {
             let from = queens.pop_lsb();
             let mut attacks = MoveGen::queen_attacks(from, all_pieces, table) & enemy_pieces;
             while !attacks.is_empty() {
-                result.push(Move::new(from, attacks.pop_lsb(), MoveFlags::CAPTURE));
+                list.push(Move::new(from, attacks.pop_lsb(), MoveFlags::CAPTURE));
             }
         }
         // pawns
@@ -843,26 +840,27 @@ impl MoveGen {
             while !attacks.is_empty() {
                 let to = attacks.pop_lsb();
                 if ep_bb.0 != 0 && to == position.en_passant {
-                    result.push(Move::new(from, to, MoveFlags::EN_PASSANT));
+                    list.push(Move::new(from, to, MoveFlags::EN_PASSANT));
                 } else {
                     if promotion_rank.get_bit(to) {
-                        result.push(Move::new(from, to, MoveFlags::KNIGHT_PROMOTION_CAPTURE));
-                        result.push(Move::new(from, to, MoveFlags::BISHOP_PROMOTION_CAPTURE));
-                        result.push(Move::new(from, to, MoveFlags::ROOK_PROMOTION_CAPTURE));
-                        result.push(Move::new(from, to, MoveFlags::QUEEN_PROMOTION_CAPTURE));
+                        list.push(Move::new(from, to, MoveFlags::KNIGHT_PROMOTION_CAPTURE));
+                        list.push(Move::new(from, to, MoveFlags::BISHOP_PROMOTION_CAPTURE));
+                        list.push(Move::new(from, to, MoveFlags::ROOK_PROMOTION_CAPTURE));
+                        list.push(Move::new(from, to, MoveFlags::QUEEN_PROMOTION_CAPTURE));
                     } else {
-                        result.push(Move::new(from, to, MoveFlags::CAPTURE));
+                        list.push(Move::new(from, to, MoveFlags::CAPTURE));
                     }
                 }
             }
         }
-        result
     }
 
-    pub fn is_attacked(square: u8, position: &Position, table: &MagicTable) -> bool {
+    pub fn is_attacked(color: Color, square: u8, position: &Position, table: &MagicTable) -> bool {
         let occupancy = position.occ;
-        let color = position.side_to_move;
-        let opponent_color = position.opponent();
+        let opponent_color = match color {
+            Color::Black => Color::White,
+            Color::White => Color::Black,
+        };
         let diagonals = MoveGen::bishop_attacks(square, occupancy, table);
         let straights = MoveGen::rook_attacks(square, occupancy, table);
         let pawns_attacks = MoveGen::pawn_attacks(square, color);
@@ -881,39 +879,51 @@ impl MoveGen {
             || (knight_attacks & enemy_knight).0 != 0
     }
 
-    pub fn generate_legal_moves(position: Position, table: &MagicTable) -> Vec<Move> {
-        let mut result: Vec<Move> = Vec::with_capacity(64);
+    pub fn generate_legal_moves(position: &mut Position, table: &MagicTable, list: &mut MoveList) {
+        let start = list.len;
         let color = position.side_to_move;
-        let pseudo = MoveGen::generate_moves(position, table);
-        for m in pseudo {
-            let mut new_position = position.make_move(m);
-            let king_sq = new_position
+        MoveGen::generate_moves(position, table, list);
+        let mut write = start;
+        for read in start..list.len {
+            let mv = list.moves[read as usize];
+            let undo = position.make_move(mv);
+            let king_sq = position
                 .get_piece_bitboard(color, PieceType::King)
                 .0
                 .trailing_zeros() as u8;
-            new_position.side_to_move = color;
-            if !MoveGen::is_attacked(king_sq, &new_position, table) {
-                result.push(m);
+            let legal = !MoveGen::is_attacked(color, king_sq, position, table);
+            position.unmake_move(mv, undo);
+            if legal {
+                list.moves[write as usize] = list.moves[read as usize];
+                write += 1;
             }
         }
-        result
+        list.len = write
     }
 
-    pub fn generate_legal_captures(position: Position, table: &MagicTable) -> Vec<Move> {
-        let mut result: Vec<Move> = Vec::with_capacity(64);
+    pub fn generate_legal_captures(
+        position: &mut Position,
+        table: &MagicTable,
+        list: &mut MoveList,
+    ) {
+        let start = list.len;
         let color = position.side_to_move;
-        let pseudo = MoveGen::generate_captures(position, table);
-        for m in pseudo {
-            let mut new_position = position.make_move(m);
-            let king_sq = new_position
+        MoveGen::generate_captures(position, table, list);
+        let mut write = start;
+        for read in start..list.len {
+            let mv = list.moves[read as usize];
+            let undo = position.make_move(mv);
+            let king_sq = position
                 .get_piece_bitboard(color, PieceType::King)
                 .0
                 .trailing_zeros() as u8;
-            new_position.side_to_move = color;
-            if !MoveGen::is_attacked(king_sq, &new_position, table) {
-                result.push(m);
+            let legal = !MoveGen::is_attacked(color, king_sq, position, table);
+            position.unmake_move(mv, undo);
+            if legal {
+                list.moves[write as usize] = list.moves[read as usize];
+                write += 1;
             }
         }
-        result
+        list.len = write
     }
 }

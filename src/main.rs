@@ -17,7 +17,7 @@ use std::time::Instant;
 use crate::game::Game;
 use position::Color;
 
-use crate::movegen::MagicTable;
+use crate::movegen::{MagicTable, MoveList};
 
 fn main() {
     uci::run();
@@ -30,12 +30,13 @@ pub fn game() {
     let start_time = Instant::now();
     let mut time_passed = 0u64;
     loop {
-        let moves = game.position.all_moves(&table);
+        let mut moves = MoveList::new();
+        game.position.all_moves(&table, &mut moves);
         if game.is_draw() {
             print!("It's a draw.");
             break;
         }
-        if moves.is_empty() {
+        if moves.len == 0 {
             if game.position.king_under_attack(&table) {
                 match game.position.side_to_move {
                     Color::White => print!("Winner is Black"),
@@ -61,7 +62,10 @@ pub fn game() {
                 let to = file_to + (coordinates[3] as u8 - b'1') * 8;
                 if from < 64 {
                     if to < 64 {
-                        let prop_move = moves.iter().find(|m| m.from() == from && m.to() == to);
+                        let prop_move = moves
+                            .as_mut_slice()
+                            .iter()
+                            .find(|m| m.from() == from && m.to() == to);
                         if let Some(mv) = prop_move {
                             let now = start_time.elapsed().as_millis() as u64;
                             game.make_move(*mv, now - time_passed);

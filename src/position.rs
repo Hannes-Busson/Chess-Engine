@@ -1,6 +1,17 @@
 use crate::bitboard::Bitboard;
-use crate::movegen::{MagicTable, Move, MoveFlags, MoveGen};
+use crate::movegen::{MagicTable, Move, MoveFlags, MoveGen, MoveList};
 use crate::zobrist;
+
+pub struct UndoInfo {
+    pub moving_piece: u8,
+    pub captured: u8,
+    pub captured_sq: u8,
+    pub en_passant: u8,
+    pub castling: u8,
+    pub hash: u64,
+    pub occ: Bitboard,
+    pub occ_by: [Bitboard; 2],
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(usize)]
@@ -170,211 +181,274 @@ impl Position {
         println!();
     }
 
-    pub fn make_move(self, to_move: Move) -> Self {
-        let mut result = self;
-        result.en_passant = 64;
+    pub fn make_move(&mut self, mv: Move) -> UndoInfo {
+        let from = mv.from();
+        let to = mv.to();
+        let flag = mv.flags();
         let color = self.side_to_move;
-        let from = to_move.from();
-        let to = to_move.to();
-        let flag = to_move.flags();
+        let ep_captured_sq = if flag == MoveFlags::EN_PASSANT {
+            to + color as u8 * 16 - 8
+        } else {
+            to
+        };
+        let undo = UndoInfo {
+            moving_piece: self.piece_on[from as usize],
+            captured: self.piece_on[ep_captured_sq as usize],
+            captured_sq: ep_captured_sq,
+            en_passant: self.en_passant,
+            castling: self.castling,
+            hash: self.hash,
+            occ: self.occ,
+            occ_by: self.occ_by,
+        };
+
+        self.en_passant = 64;
+        let opponent = self.opponent();
         let piece_idx = self.piece_on[from as usize] as usize;
         let opponent_idx = self.piece_on[to as usize] as usize;
-        result.castling &= CASTLING_UPDATE[from as usize];
-        result.castling &= CASTLING_UPDATE[to as usize];
+        self.castling &= CASTLING_UPDATE[from as usize];
+        self.castling &= CASTLING_UPDATE[to as usize];
         match flag {
             MoveFlags::QUIET => {
-                result.pieces[piece_idx].clear_bit(from);
-                result.pieces[piece_idx].set_bit(to);
-                result.piece_on[from as usize] = 64;
-                result.piece_on[to as usize] = piece_idx as u8;
-                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
-                result.hash ^= zobrist::keys()[piece_idx * 64 + to as usize];
+                self.pieces[piece_idx].clear_bit(from);
+                self.pieces[piece_idx].set_bit(to);
+                self.piece_on[from as usize] = 64;
+                self.piece_on[to as usize] = piece_idx as u8;
+                self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                self.hash ^= zobrist::keys()[piece_idx * 64 + to as usize];
             }
             MoveFlags::CAPTURE => {
-                result.pieces[piece_idx].clear_bit(from);
-                result.pieces[opponent_idx].clear_bit(to);
-                result.pieces[piece_idx].set_bit(to);
-                result.piece_on[from as usize] = 64;
-                result.piece_on[to as usize] = piece_idx as u8;
-                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
-                result.hash ^= zobrist::keys()[piece_idx * 64 + to as usize];
-                result.hash ^= zobrist::keys()[opponent_idx * 64 + to as usize];
+                self.pieces[piece_idx].clear_bit(from);
+                self.pieces[opponent_idx].clear_bit(to);
+                self.pieces[piece_idx].set_bit(to);
+                self.piece_on[from as usize] = 64;
+                self.piece_on[to as usize] = piece_idx as u8;
+                self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                self.hash ^= zobrist::keys()[piece_idx * 64 + to as usize];
+                self.hash ^= zobrist::keys()[opponent_idx * 64 + to as usize];
             }
             MoveFlags::KNIGHT_PROMOTION => {
-                result.pieces[piece_idx].clear_bit(from);
-                result.pieces[(color as usize) * 6 + 1].set_bit(to);
-                result.piece_on[from as usize] = 64;
-                result.piece_on[to as usize] = (color as u8) * 6 + 1;
-                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
-                result.hash ^= zobrist::keys()[((color as usize) * 6 + 1) * 64 + to as usize];
+                self.pieces[piece_idx].clear_bit(from);
+                self.pieces[(color as usize) * 6 + 1].set_bit(to);
+                self.piece_on[from as usize] = 64;
+                self.piece_on[to as usize] = (color as u8) * 6 + 1;
+                self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                self.hash ^= zobrist::keys()[((color as usize) * 6 + 1) * 64 + to as usize];
             }
             MoveFlags::BISHOP_PROMOTION => {
-                result.pieces[piece_idx].clear_bit(from);
-                result.pieces[(color as usize) * 6 + 2].set_bit(to);
-                result.piece_on[from as usize] = 64;
-                result.piece_on[to as usize] = (color as u8) * 6 + 2;
-                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
-                result.hash ^= zobrist::keys()[((color as usize) * 6 + 2) * 64 + to as usize];
+                self.pieces[piece_idx].clear_bit(from);
+                self.pieces[(color as usize) * 6 + 2].set_bit(to);
+                self.piece_on[from as usize] = 64;
+                self.piece_on[to as usize] = (color as u8) * 6 + 2;
+                self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                self.hash ^= zobrist::keys()[((color as usize) * 6 + 2) * 64 + to as usize];
             }
             MoveFlags::ROOK_PROMOTION => {
-                result.pieces[piece_idx].clear_bit(from);
-                result.pieces[(color as usize) * 6 + 3].set_bit(to);
-                result.piece_on[from as usize] = 64;
-                result.piece_on[to as usize] = (color as u8) * 6 + 3;
-                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
-                result.hash ^= zobrist::keys()[((color as usize) * 6 + 3) * 64 + to as usize];
+                self.pieces[piece_idx].clear_bit(from);
+                self.pieces[(color as usize) * 6 + 3].set_bit(to);
+                self.piece_on[from as usize] = 64;
+                self.piece_on[to as usize] = (color as u8) * 6 + 3;
+                self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                self.hash ^= zobrist::keys()[((color as usize) * 6 + 3) * 64 + to as usize];
             }
             MoveFlags::QUEEN_PROMOTION => {
-                result.pieces[piece_idx].clear_bit(from);
-                result.pieces[(color as usize) * 6 + 4].set_bit(to);
-                result.piece_on[from as usize] = 64;
-                result.piece_on[to as usize] = (color as u8) * 6 + 4;
-                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
-                result.hash ^= zobrist::keys()[((color as usize) * 6 + 4) * 64 + to as usize];
+                self.pieces[piece_idx].clear_bit(from);
+                self.pieces[(color as usize) * 6 + 4].set_bit(to);
+                self.piece_on[from as usize] = 64;
+                self.piece_on[to as usize] = (color as u8) * 6 + 4;
+                self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                self.hash ^= zobrist::keys()[((color as usize) * 6 + 4) * 64 + to as usize];
             }
             MoveFlags::KNIGHT_PROMOTION_CAPTURE => {
-                result.pieces[piece_idx].clear_bit(from);
-                result.pieces[opponent_idx].clear_bit(to);
-                result.pieces[(color as usize) * 6 + 1].set_bit(to);
-                result.piece_on[from as usize] = 64;
-                result.piece_on[to as usize] = (color as u8) * 6 + 1;
-                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
-                result.hash ^= zobrist::keys()[((color as usize) * 6 + 1) * 64 + to as usize];
-                result.hash ^= zobrist::keys()[opponent_idx * 64 + to as usize];
+                self.pieces[piece_idx].clear_bit(from);
+                self.pieces[opponent_idx].clear_bit(to);
+                self.pieces[(color as usize) * 6 + 1].set_bit(to);
+                self.piece_on[from as usize] = 64;
+                self.piece_on[to as usize] = (color as u8) * 6 + 1;
+                self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                self.hash ^= zobrist::keys()[((color as usize) * 6 + 1) * 64 + to as usize];
+                self.hash ^= zobrist::keys()[opponent_idx * 64 + to as usize];
             }
             MoveFlags::BISHOP_PROMOTION_CAPTURE => {
-                result.pieces[piece_idx].clear_bit(from);
-                result.pieces[opponent_idx].clear_bit(to);
-                result.pieces[(color as usize) * 6 + 2].set_bit(to);
-                result.piece_on[from as usize] = 64;
-                result.piece_on[to as usize] = (color as u8) * 6 + 2;
-                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
-                result.hash ^= zobrist::keys()[((color as usize) * 6 + 2) * 64 + to as usize];
-                result.hash ^= zobrist::keys()[opponent_idx * 64 + to as usize];
+                self.pieces[piece_idx].clear_bit(from);
+                self.pieces[opponent_idx].clear_bit(to);
+                self.pieces[(color as usize) * 6 + 2].set_bit(to);
+                self.piece_on[from as usize] = 64;
+                self.piece_on[to as usize] = (color as u8) * 6 + 2;
+                self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                self.hash ^= zobrist::keys()[((color as usize) * 6 + 2) * 64 + to as usize];
+                self.hash ^= zobrist::keys()[opponent_idx * 64 + to as usize];
             }
             MoveFlags::ROOK_PROMOTION_CAPTURE => {
-                result.pieces[piece_idx].clear_bit(from);
-                result.pieces[opponent_idx].clear_bit(to);
-                result.pieces[(color as usize) * 6 + 3].set_bit(to);
-                result.piece_on[from as usize] = 64;
-                result.piece_on[to as usize] = (color as u8) * 6 + 3;
-                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
-                result.hash ^= zobrist::keys()[((color as usize) * 6 + 3) * 64 + to as usize];
-                result.hash ^= zobrist::keys()[opponent_idx * 64 + to as usize];
+                self.pieces[piece_idx].clear_bit(from);
+                self.pieces[opponent_idx].clear_bit(to);
+                self.pieces[(color as usize) * 6 + 3].set_bit(to);
+                self.piece_on[from as usize] = 64;
+                self.piece_on[to as usize] = (color as u8) * 6 + 3;
+                self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                self.hash ^= zobrist::keys()[((color as usize) * 6 + 3) * 64 + to as usize];
+                self.hash ^= zobrist::keys()[opponent_idx * 64 + to as usize];
             }
             MoveFlags::QUEEN_PROMOTION_CAPTURE => {
-                result.pieces[piece_idx].clear_bit(from);
-                result.pieces[opponent_idx].clear_bit(to);
-                result.pieces[(color as usize) * 6 + 4].set_bit(to);
-                result.piece_on[from as usize] = 64;
-                result.piece_on[to as usize] = (color as u8) * 6 + 4;
-                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
-                result.hash ^= zobrist::keys()[((color as usize) * 6 + 4) * 64 + to as usize];
-                result.hash ^= zobrist::keys()[opponent_idx * 64 + to as usize];
+                self.pieces[piece_idx].clear_bit(from);
+                self.pieces[opponent_idx].clear_bit(to);
+                self.pieces[(color as usize) * 6 + 4].set_bit(to);
+                self.piece_on[from as usize] = 64;
+                self.piece_on[to as usize] = (color as u8) * 6 + 4;
+                self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                self.hash ^= zobrist::keys()[((color as usize) * 6 + 4) * 64 + to as usize];
+                self.hash ^= zobrist::keys()[opponent_idx * 64 + to as usize];
             }
             MoveFlags::KINGSIDE_CASTLE => {
-                result.pieces[(color as usize * 6) + 5].clear_bit((color as u8) * 56 + 4);
-                result.pieces[(color as usize * 6) + 5].set_bit((color as u8) * 56 + 6);
-                result.pieces[(color as usize * 6) + 3].clear_bit((color as u8) * 56 + 7);
-                result.pieces[(color as usize * 6) + 3].set_bit((color as u8) * 56 + 5);
-                result.piece_on[from as usize] = 64;
-                result.piece_on[to as usize] = piece_idx as u8;
-                result.piece_on[(color as usize) * 56 + 7] = 64;
-                result.piece_on[(color as usize) * 56 + 5] = (color as u8 * 6) + 3;
-                result.hash ^= zobrist::keys()
+                self.pieces[(color as usize * 6) + 5].clear_bit((color as u8) * 56 + 4);
+                self.pieces[(color as usize * 6) + 5].set_bit((color as u8) * 56 + 6);
+                self.pieces[(color as usize * 6) + 3].clear_bit((color as u8) * 56 + 7);
+                self.pieces[(color as usize * 6) + 3].set_bit((color as u8) * 56 + 5);
+                self.piece_on[from as usize] = 64;
+                self.piece_on[to as usize] = piece_idx as u8;
+                self.piece_on[(color as usize) * 56 + 7] = 64;
+                self.piece_on[(color as usize) * 56 + 5] = (color as u8 * 6) + 3;
+                self.hash ^= zobrist::keys()
                     [((color as usize) * 6 + 5) * 64 + ((color as u8) * 56 + 4) as usize];
-                result.hash ^= zobrist::keys()
+                self.hash ^= zobrist::keys()
                     [((color as usize) * 6 + 5) * 64 + ((color as u8) * 56 + 6) as usize];
-                result.hash ^= zobrist::keys()
+                self.hash ^= zobrist::keys()
                     [((color as usize) * 6 + 3) * 64 + ((color as u8) * 56 + 7) as usize];
-                result.hash ^= zobrist::keys()
+                self.hash ^= zobrist::keys()
                     [((color as usize) * 6 + 3) * 64 + ((color as u8) * 56 + 5) as usize];
             }
             MoveFlags::QUEENSIDE_CASTLE => {
-                result.pieces[(color as usize * 6) + 5].clear_bit((color as u8) * 56 + 4);
-                result.pieces[(color as usize * 6) + 5].set_bit((color as u8) * 56 + 2);
-                result.pieces[(color as usize * 6) + 3].clear_bit((color as u8) * 56 + 0);
-                result.pieces[(color as usize * 6) + 3].set_bit((color as u8) * 56 + 3);
-                result.piece_on[from as usize] = 64;
-                result.piece_on[to as usize] = piece_idx as u8;
-                result.piece_on[(color as usize) * 56 + 0] = 64;
-                result.piece_on[(color as usize) * 56 + 3] = (color as u8 * 6) + 3;
-                result.hash ^= zobrist::keys()
+                self.pieces[(color as usize * 6) + 5].clear_bit((color as u8) * 56 + 4);
+                self.pieces[(color as usize * 6) + 5].set_bit((color as u8) * 56 + 2);
+                self.pieces[(color as usize * 6) + 3].clear_bit((color as u8) * 56 + 0);
+                self.pieces[(color as usize * 6) + 3].set_bit((color as u8) * 56 + 3);
+                self.piece_on[from as usize] = 64;
+                self.piece_on[to as usize] = piece_idx as u8;
+                self.piece_on[(color as usize) * 56 + 0] = 64;
+                self.piece_on[(color as usize) * 56 + 3] = (color as u8 * 6) + 3;
+                self.hash ^= zobrist::keys()
                     [((color as usize) * 6 + 5) * 64 + ((color as u8) * 56 + 4) as usize];
-                result.hash ^= zobrist::keys()
+                self.hash ^= zobrist::keys()
                     [((color as usize) * 6 + 5) * 64 + ((color as u8) * 56 + 2) as usize];
-                result.hash ^= zobrist::keys()
+                self.hash ^= zobrist::keys()
                     [((color as usize) * 6 + 3) * 64 + ((color as u8) * 56 + 0) as usize];
-                result.hash ^= zobrist::keys()
+                self.hash ^= zobrist::keys()
                     [((color as usize) * 6 + 3) * 64 + ((color as u8) * 56 + 3) as usize];
             }
             MoveFlags::EN_PASSANT => {
-                result.pieces[(color as usize) * 6 + 0].clear_bit(from);
-                result.pieces[(1 - (color as usize)) * 6 + 0]
-                    .clear_bit(to + (color as u8) * 16 - 8);
-                result.pieces[(color as usize) * 6 + 0].set_bit(to);
-                result.piece_on[from as usize] = 64;
-                result.piece_on[to as usize] = piece_idx as u8;
-                result.piece_on[to as usize + (color as usize) * 16 - 8] = 64;
-                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
-                result.hash ^= zobrist::keys()[piece_idx * 64 + to as usize];
-                result.hash ^= zobrist::keys()
+                self.pieces[(color as usize) * 6 + 0].clear_bit(from);
+                self.pieces[(1 - (color as usize)) * 6 + 0].clear_bit(to + (color as u8) * 16 - 8);
+                self.pieces[(color as usize) * 6 + 0].set_bit(to);
+                self.piece_on[from as usize] = 64;
+                self.piece_on[to as usize] = piece_idx as u8;
+                self.piece_on[to as usize + (color as usize) * 16 - 8] = 64;
+                self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                self.hash ^= zobrist::keys()[piece_idx * 64 + to as usize];
+                self.hash ^= zobrist::keys()
                     [(1 - color as usize) * 6 * 64 + (to as usize + (color as usize) * 16 - 8)];
             }
             MoveFlags::DOUBLE_PAWN_PUSH => {
-                result.pieces[piece_idx].clear_bit(from);
-                result.pieces[piece_idx].set_bit(to);
-                result.en_passant = from + 8 - (color as u8) * 16;
-                result.piece_on[from as usize] = 64;
-                result.piece_on[to as usize] = piece_idx as u8;
-                result.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
-                result.hash ^= zobrist::keys()[piece_idx * 64 + to as usize];
+                self.pieces[piece_idx].clear_bit(from);
+                self.pieces[piece_idx].set_bit(to);
+                self.en_passant = from + 8 - (color as u8) * 16;
+                self.piece_on[from as usize] = 64;
+                self.piece_on[to as usize] = piece_idx as u8;
+                self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
+                self.hash ^= zobrist::keys()[piece_idx * 64 + to as usize];
             }
             6_u8..=7_u8 | 16_u8..=u8::MAX => {}
         }
 
-        result.hash ^= zobrist::keys()[768];
+        self.hash ^= zobrist::keys()[768];
+        for i in 0..4 {
+            if (undo.castling >> i) & 1 != 0 {
+                self.hash ^= zobrist::keys()[769 + i];
+            }
+        }
         for i in 0..4 {
             if (self.castling >> i) & 1 != 0 {
-                result.hash ^= zobrist::keys()[769 + i];
+                self.hash ^= zobrist::keys()[769 + i];
             }
         }
-        for i in 0..4 {
-            if (result.castling >> i) & 1 != 0 {
-                result.hash ^= zobrist::keys()[769 + i];
-            }
+        if undo.en_passant != 64 {
+            self.hash ^= zobrist::keys()[773 + (undo.en_passant % 8) as usize];
         }
         if self.en_passant != 64 {
-            result.hash ^= zobrist::keys()[773 + (self.en_passant % 8) as usize];
-        }
-        if result.en_passant != 64 {
-            result.hash ^= zobrist::keys()[773 + (result.en_passant % 8) as usize];
+            self.hash ^= zobrist::keys()[773 + (self.en_passant % 8) as usize];
         }
 
-        result.occ = Bitboard(0);
-        for p in &result.pieces {
-            result.occ = result.occ | *p;
+        self.occ.clear_bit(from);
+        self.occ_by[color as usize].clear_bit(from);
+        if undo.captured != 64 {
+            self.occ_by[opponent as usize].clear_bit(undo.captured_sq);
         }
-        let mut occ_white = Bitboard(0);
-        for i in 0..6 {
-            occ_white = occ_white | result.pieces[i];
+        if undo.captured_sq != to {
+            self.occ.clear_bit(undo.captured_sq);
         }
-        result.occ_by = [occ_white, result.occ & !occ_white];
+        self.occ.set_bit(to);
+        self.occ_by[color as usize].set_bit(to);
+        if flag == MoveFlags::KINGSIDE_CASTLE {
+            self.occ.clear_bit(color as u8 * 56 + 7);
+            self.occ.set_bit(color as u8 * 56 + 5);
+            self.occ_by[color as usize].clear_bit(color as u8 * 56 + 7);
+            self.occ_by[color as usize].set_bit(color as u8 * 56 + 5);
+        }
+        if flag == MoveFlags::QUEENSIDE_CASTLE {
+            self.occ.clear_bit(color as u8 * 56 + 0);
+            self.occ.set_bit(color as u8 * 56 + 3);
+            self.occ_by[color as usize].clear_bit(color as u8 * 56 + 0);
+            self.occ_by[color as usize].set_bit(color as u8 * 56 + 3);
+        }
 
-        result.side_to_move = self.opponent();
-        result
+        self.side_to_move = opponent;
+        undo
     }
 
-    pub fn all_moves(self, table: &MagicTable) -> Vec<Move> {
-        MoveGen::generate_legal_moves(self, table)
+    pub fn unmake_move(&mut self, mv: Move, undo: UndoInfo) {
+        self.side_to_move = self.opponent();
+        self.en_passant = undo.en_passant;
+        self.castling = undo.castling;
+        self.hash = undo.hash;
+        let color = self.side_to_move;
+        let from = mv.from();
+        let to = mv.to();
+        self.pieces[undo.moving_piece as usize].set_bit(from);
+        self.pieces[self.piece_on[to as usize] as usize].clear_bit(to);
+        self.piece_on[from as usize] = undo.moving_piece;
+        self.piece_on[to as usize] = 64;
+        if undo.captured != 64 {
+            self.pieces[undo.captured as usize].set_bit(undo.captured_sq);
+            self.piece_on[undo.captured_sq as usize] = undo.captured;
+        }
+        let flag = mv.flags();
+        if flag == MoveFlags::KINGSIDE_CASTLE {
+            self.pieces[color as usize * 6 + 3].clear_bit(color as u8 * 56 + 5);
+            self.pieces[color as usize * 6 + 3].set_bit(color as u8 * 56 + 7);
+            self.piece_on[color as usize * 56 + 5] = 64;
+            self.piece_on[color as usize * 56 + 7] = color as u8 * 6 + 3;
+        }
+        if flag == MoveFlags::QUEENSIDE_CASTLE {
+            self.pieces[color as usize * 6 + 3].clear_bit(color as u8 * 56 + 3);
+            self.pieces[color as usize * 6 + 3].set_bit(color as u8 * 56 + 0);
+            self.piece_on[color as usize * 56 + 3] = 64;
+            self.piece_on[color as usize * 56 + 0] = color as u8 * 6 + 3;
+        }
+
+        self.occ = undo.occ;
+        self.occ_by = undo.occ_by;
     }
 
-    pub fn all_captures(self, table: &MagicTable) -> Vec<Move> {
-        MoveGen::generate_legal_captures(self, table)
+    pub fn all_moves(&mut self, table: &MagicTable, list: &mut MoveList) {
+        MoveGen::generate_legal_moves(self, table, list)
+    }
+
+    pub fn all_captures(&mut self, table: &MagicTable, list: &mut MoveList) {
+        MoveGen::generate_legal_captures(self, table, list)
     }
 
     pub fn king_under_attack(&self, table: &MagicTable) -> bool {
         MoveGen::is_attacked(
+            self.side_to_move,
             self.pieces[(self.side_to_move as u8 * 6 + 5) as usize]
                 .0
                 .trailing_zeros() as u8,

@@ -1,6 +1,6 @@
 use crate::{
     file_to_number,
-    movegen::{MagicTable, Move},
+    movegen::{MagicTable, Move, MoveList},
     position::Position,
     search::best_move,
     tt::TransponationTable,
@@ -26,14 +26,18 @@ pub fn run() {
         match tokens[0] {
             "uci" => println!("id name SAYA\nid author Tec\nuciok"),
             "isready" => println!("readyok"),
-            "ucinewgame" => game = Position::start(),
+            "ucinewgame" => {
+                game = Position::start();
+                t_table = TransponationTable::new();
+            }
             "quit" => break,
             "position" => match tokens[1] {
                 "startpos" => {
                     game = Position::start();
                     for t in 3..tokens.len() {
                         let mut coordinates = [' '; 4];
-                        let legal_moves = game.all_moves(&table);
+                        let mut legal_moves = MoveList::new();
+                        game.all_moves(&table, &mut legal_moves);
                         for i in 0..4 {
                             coordinates[i] = tokens[t].as_bytes()[i] as char;
                         }
@@ -51,7 +55,7 @@ pub fn run() {
                                         'r' => 2,
                                         _ => 3,
                                     };
-                                    legal_moves.iter().find(|m| {
+                                    legal_moves.as_slice().iter().find(|m| {
                                         m.from() == from
                                             && m.to() == to
                                             && m.flags() >= 8
@@ -59,12 +63,13 @@ pub fn run() {
                                     })
                                 } else {
                                     legal_moves
+                                        .as_slice()
                                         .iter()
                                         .find(|m| m.from() == from && m.to() == to)
                                 };
 
                                 if let Some(mv) = prop_move {
-                                    game = game.make_move(*mv);
+                                    let _ = game.make_move(*mv);
                                 } else {
                                     println!("Invalid move.")
                                 }
@@ -81,13 +86,13 @@ pub fn run() {
             "go" => match tokens[1] {
                 "depth" => {
                     let depth: u32 = tokens[2].parse().unwrap();
-                    let best_mv = best_move(game, depth, &table, &mut t_table);
+                    let best_mv = best_move(&mut game, depth, &table, &mut t_table);
                     if let Some(mv) = best_mv {
                         println!("bestmove {}", mv_to_string(mv));
                     }
                 }
                 _ => {
-                    let best_mv = best_move(game, 10, &table, &mut t_table);
+                    let best_mv = best_move(&mut game, 10, &table, &mut t_table);
                     if let Some(mv) = best_mv {
                         println!("bestmove {}", mv_to_string(mv));
                     }

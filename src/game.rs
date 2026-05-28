@@ -28,10 +28,10 @@ impl Game {
     }
 
     pub fn make_move(&mut self, mv: Move, elapsed_ms: u64) -> &mut Self {
-        let mut new_game_state = self;
+        let new_game_state = self;
         let is_pawn_move = new_game_state.position.piece_on[mv.from() as usize] % 6 == 0;
         new_game_state.history.push(new_game_state.position);
-        new_game_state.position = new_game_state.position.make_move(mv);
+        let _ = new_game_state.position.make_move(mv);
         let flag = mv.flags();
         if flag == MoveFlags::CAPTURE || is_pawn_move {
             new_game_state.half_move_clock = 0;
