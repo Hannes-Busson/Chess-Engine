@@ -5,7 +5,10 @@ use crate::{
     tt::{self, TransponationTable},
     zobrist,
 };
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    ptr::null,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 static NEGAMAX_CALLS: AtomicU64 = AtomicU64::new(0);
 static TT_HITS: AtomicU64 = AtomicU64::new(0);
@@ -84,19 +87,50 @@ pub fn negamax(
         .sort_by_key(|mv| -move_score(&position, mv, tt_move, killers, ply));
     let original_alpha = alpha;
     let mut best_move = 0;
+    let mut move_index = 0u32;
     for mv in legal_moves.as_slice() {
         let undo = position.make_move(*mv);
-        let score = -negamax(
-            position,
-            depth - 1,
-            ply + 1,
-            -beta,
-            -alpha,
-            table,
-            t_table,
-            killers,
-        );
+        let score;
+        if move_index == 0 {
+            score = -negamax(
+                position,
+                depth - 1,
+                ply + 1,
+                -beta,
+                -alpha,
+                table,
+                t_table,
+                killers,
+            );
+        } else {
+            let null_score = -negamax(
+                position,
+                depth - 1,
+                ply + 1,
+                -alpha - 1,
+                -alpha,
+                table,
+                t_table,
+                killers,
+            );
+            if null_score > alpha && null_score < beta {
+                score = -negamax(
+                    position,
+                    depth - 1,
+                    ply + 1,
+                    -beta,
+                    -alpha,
+                    table,
+                    t_table,
+                    killers,
+                );
+            } else {
+                score = null_score;
+            }
+        }
+
         position.unmake_move(*mv, undo);
+        move_index += 1;
         if score > alpha {
             alpha = score;
             best_move = mv.value;
