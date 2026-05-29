@@ -1,7 +1,9 @@
+use std::u64;
+
 use crate::{
     file_to_number,
     movegen::{MagicTable, Move, MoveList},
-    position::Position,
+    position::{Color, Position},
     search::best_move,
     tt::TransponationTable,
 };
@@ -86,13 +88,39 @@ pub fn run() {
             "go" => match tokens[1] {
                 "depth" => {
                     let depth: u32 = tokens[2].parse().unwrap();
-                    let best_mv = best_move(&mut game, depth, &table, &mut t_table);
+                    let best_mv = best_move(&mut game, depth, &table, &mut t_table, u64::MAX);
                     if let Some(mv) = best_mv {
                         println!("bestmove {}", mv_to_string(mv));
                     }
                 }
+                "wtime" => match game.side_to_move {
+                    Color::White => {
+                        let mut time_limit_ms = tokens[2].parse::<u64>().unwrap() / 30;
+                        if let Some(t) = tokens.get(6) {
+                            let time_increment = t.parse::<u64>().unwrap();
+                            time_limit_ms += time_increment * 3 / 4;
+                        }
+                        let best_mv =
+                            best_move(&mut game, 100, &table, &mut t_table, time_limit_ms);
+                        if let Some(mv) = best_mv {
+                            println!("bestmove {}", mv_to_string(mv));
+                        }
+                    }
+                    Color::Black => {
+                        let mut time_limit_ms = tokens[4].parse::<u64>().unwrap() / 30;
+                        if let Some(t) = tokens.get(8) {
+                            let time_increment = t.parse::<u64>().unwrap();
+                            time_limit_ms += time_increment * 3 / 4;
+                        }
+                        let best_mv =
+                            best_move(&mut game, 100, &table, &mut t_table, time_limit_ms);
+                        if let Some(mv) = best_mv {
+                            println!("bestmove {}", mv_to_string(mv));
+                        }
+                    }
+                },
                 _ => {
-                    let best_mv = best_move(&mut game, 10, &table, &mut t_table);
+                    let best_mv = best_move(&mut game, 100, &table, &mut t_table, 5000);
                     if let Some(mv) = best_mv {
                         println!("bestmove {}", mv_to_string(mv));
                     }

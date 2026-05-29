@@ -5,7 +5,11 @@ use crate::{
     tt::{self, TransponationTable},
     zobrist,
 };
-use std::sync::atomic::{AtomicU64, Ordering};
+use core::time;
+use std::{
+    sync::atomic::{AtomicU64, Ordering},
+    time::Instant,
+};
 
 static NEGAMAX_CALLS: AtomicU64 = AtomicU64::new(0);
 static TT_HITS: AtomicU64 = AtomicU64::new(0);
@@ -84,18 +88,46 @@ pub fn negamax(
         .sort_by_key(|mv| -move_score(&position, mv, tt_move, killers, ply));
     let original_alpha = alpha;
     let mut best_move = 0;
+    let in_check = position.king_under_attack(table);
+    let mut move_index = 0;
     for mv in legal_moves.as_slice() {
         let undo = position.make_move(*mv);
-        let score = -negamax(
-            position,
-            depth - 1,
-            ply + 1,
-            -beta,
-            -alpha,
-            table,
-            t_table,
-            killers,
-        );
+        let mut score = 0;
+        if move_index >= 2 && depth >= 3 && !in_check && mv.flags() < MoveFlags::CAPTURE {
+            score = -negamax(
+                position,
+                depth - 2,
+                ply + 1,
+                -beta,
+                -alpha,
+                table,
+                t_table,
+                killers,
+            );
+            if score > alpha {
+                score = -negamax(
+                    position,
+                    depth - 1,
+                    ply + 1,
+                    -beta,
+                    -alpha,
+                    table,
+                    t_table,
+                    killers,
+                );
+            }
+        } else {
+            score = -negamax(
+                position,
+                depth - 1,
+                ply + 1,
+                -beta,
+                -alpha,
+                table,
+                t_table,
+                killers,
+            );
+        }
         position.unmake_move(*mv, undo);
         if score > alpha {
             alpha = score;
@@ -105,6 +137,7 @@ pub fn negamax(
             BETA_CUTOFFS.fetch_add(1, Ordering::Relaxed);
             break;
         }
+        move_index += 1;
     }
     if alpha >= beta {
         STORE_CALLS.fetch_add(1, Ordering::Relaxed);
@@ -133,7 +166,10 @@ pub fn best_move(
     depth: u32,
     table: &MagicTable,
     t_table: &mut TransponationTable,
+    time_limit_ms: u64,
 ) -> Option<Move> {
+    let start = Instant::now();
+    let mut time_up = false;
     let mut result: Option<Move> = None;
     let mut legal_moves = MoveList::new();
     position.all_moves(table, &mut legal_moves);
@@ -163,12 +199,29 @@ pub fn best_move(
                 highest_score = score;
                 partial_result = Some(*mv);
             }
+            if start.elapsed().as_millis() as u64 >= time_limit_ms {
+                time_up = true;
+                break;
+            }
+        }
+        if time_up {
+            break;
         }
         if let Some(mv) = partial_result {
             STORE_CALLS.fetch_add(1, Ordering::Relaxed);
             t_table.store(position.hash, highest_score, d as u8, 0, mv.value);
         }
         result = partial_result;
+        let nodes = NEGAMAX_CALLS.load(Ordering::Relaxed);
+        let elapsed_time = start.elapsed().as_millis().max(1) as u64;
+        println!(
+            "info depth {} score cp {} nodes {} time {} nps {}",
+            d,
+            highest_score,
+            nodes,
+            elapsed_time,
+            nodes / elapsed_time
+        )
     }
     eprintln!("{}", NEGAMAX_CALLS.load(Ordering::Relaxed));
     eprintln!("{}", TT_HITS.load(Ordering::Relaxed));
