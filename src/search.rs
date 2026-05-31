@@ -220,16 +220,16 @@ pub fn best_move(
             highest_score,
             nodes,
             elapsed_time,
-            nodes / elapsed_time
+            nodes * 1000 / elapsed_time
         )
     }
-    eprintln!("{}", NEGAMAX_CALLS.load(Ordering::Relaxed));
-    eprintln!("{}", TT_HITS.load(Ordering::Relaxed));
-    eprintln!("{}", TT_COLLISIONS.load(Ordering::Relaxed));
-    eprintln!("{}", BETA_CUTOFFS.load(Ordering::Relaxed));
-    eprintln!("{}", NULL_MOVE_CUTOFFS.load(Ordering::Relaxed));
-    eprintln!("{}", QUIESCENCE_CALLS.load(Ordering::Relaxed));
-    eprintln!("{}", STORE_CALLS.load(Ordering::Relaxed));
+    // eprintln!("{}", NEGAMAX_CALLS.load(Ordering::Relaxed));
+    // eprintln!("{}", TT_HITS.load(Ordering::Relaxed));
+    // eprintln!("{}", TT_COLLISIONS.load(Ordering::Relaxed));
+    // eprintln!("{}", BETA_CUTOFFS.load(Ordering::Relaxed));
+    // eprintln!("{}", NULL_MOVE_CUTOFFS.load(Ordering::Relaxed));
+    // eprintln!("{}", QUIESCENCE_CALLS.load(Ordering::Relaxed));
+    // eprintln!("{}", STORE_CALLS.load(Ordering::Relaxed));
     t_table.stats();
     result
 }
@@ -335,4 +335,12 @@ pub fn quienscence(
         t_table.store(position.hash, alpha, 0, 1, 0);
     }
     alpha
+}
+
+pub fn reset_stats() {
+    NEGAMAX_CALLS.store(0, Ordering::Relaxed);
+}
+
+pub fn get_nodes() -> u64 {
+    NEGAMAX_CALLS.load(Ordering::Relaxed)
 }

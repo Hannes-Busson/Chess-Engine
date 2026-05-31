@@ -14,7 +14,7 @@ mod zobrist;
 use std::io;
 use std::time::Instant;
 
-use crate::game::Game;
+use crate::{game::Game, position::Position};
 use position::Color;
 
 use crate::movegen::{MagicTable, MoveList};

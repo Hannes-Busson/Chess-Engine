@@ -125,6 +125,147 @@ impl Position {
         }
     }
 
+    pub fn from_fen(fen: &str) -> Self {
+        let mut hash = 0u64;
+        let mut pieces = [Bitboard(0); 12];
+        let mut piece_on = [64u8; 64];
+        let mut square = 0;
+
+        let space_splitted: Vec<&str> = fen.split(' ').collect();
+        let slash_splitted: Vec<&str> = space_splitted[0].rsplit('/').collect();
+
+        for s in slash_splitted {
+            for i in 0..s.len() {
+                let c = s.as_bytes()[i] as char;
+                if c.is_alphabetic() {
+                    match c {
+                        'P' => {
+                            pieces[0].set_bit(square);
+                            piece_on[square as usize] = 0;
+                            hash ^= zobrist::keys()[0 * 64 + square as usize]
+                        }
+                        'N' => {
+                            pieces[1].set_bit(square);
+                            piece_on[square as usize] = 1;
+                            hash ^= zobrist::keys()[1 * 64 + square as usize]
+                        }
+                        'B' => {
+                            pieces[2].set_bit(square);
+                            piece_on[square as usize] = 2;
+                            hash ^= zobrist::keys()[2 * 64 + square as usize]
+                        }
+                        'R' => {
+                            pieces[3].set_bit(square);
+                            piece_on[square as usize] = 3;
+                            hash ^= zobrist::keys()[3 * 64 + square as usize]
+                        }
+                        'Q' => {
+                            pieces[4].set_bit(square);
+                            piece_on[square as usize] = 4;
+                            hash ^= zobrist::keys()[4 * 64 + square as usize]
+                        }
+                        'K' => {
+                            pieces[5].set_bit(square);
+                            piece_on[square as usize] = 5;
+                            hash ^= zobrist::keys()[5 * 64 + square as usize]
+                        }
+                        'p' => {
+                            pieces[6].set_bit(square);
+                            piece_on[square as usize] = 6;
+                            hash ^= zobrist::keys()[6 * 64 + square as usize]
+                        }
+                        'n' => {
+                            pieces[7].set_bit(square);
+                            piece_on[square as usize] = 7;
+                            hash ^= zobrist::keys()[7 * 64 + square as usize]
+                        }
+                        'b' => {
+                            pieces[8].set_bit(square);
+                            piece_on[square as usize] = 8;
+                            hash ^= zobrist::keys()[8 * 64 + square as usize]
+                        }
+                        'r' => {
+                            pieces[9].set_bit(square);
+                            piece_on[square as usize] = 9;
+                            hash ^= zobrist::keys()[9 * 64 + square as usize]
+                        }
+                        'q' => {
+                            pieces[10].set_bit(square);
+                            piece_on[square as usize] = 10;
+                            hash ^= zobrist::keys()[10 * 64 + square as usize]
+                        }
+                        'k' => {
+                            pieces[11].set_bit(square);
+                            piece_on[square as usize] = 11;
+                            hash ^= zobrist::keys()[11 * 64 + square as usize]
+                        }
+                        _ => println!("FEN parsing error"),
+                    }
+                    square += 1;
+                } else {
+                    square += c as u8 - b'0';
+                }
+            }
+        }
+
+        let side_to_move = match space_splitted[1] {
+            "b" => {
+                hash ^= zobrist::keys()[768];
+                Color::Black
+            }
+            _ => Color::White,
+        };
+
+        let mut castling = 0u8;
+        if space_splitted[2].contains('K') {
+            castling ^= 0b00000001;
+            hash ^= zobrist::keys()[769]
+        }
+        if space_splitted[2].contains('Q') {
+            castling ^= 0b00000010;
+            hash ^= zobrist::keys()[770];
+        }
+        if space_splitted[2].contains('k') {
+            castling ^= 0b00000100;
+            hash ^= zobrist::keys()[771];
+        }
+        if space_splitted[2].contains('q') {
+            castling ^= 0b00001000;
+            hash ^= zobrist::keys()[772];
+        }
+
+        let en_passant = if space_splitted[3] == "-" {
+            64
+        } else {
+            (space_splitted[3].as_bytes()[0] as u8 - b'a'
+                + (space_splitted[3].as_bytes()[1] as u8 - b'1') * 8) as u8
+        };
+        if en_passant != 64 {
+            hash ^= zobrist::keys()[773 + (en_passant % 8) as usize];
+        }
+
+        let mut occ = Bitboard(0);
+        for p in &pieces {
+            occ = occ | *p;
+        }
+        let mut occ_white = Bitboard(0);
+        for i in 0..6 {
+            occ_white = occ_white | pieces[i];
+        }
+        let occ_by = [occ_white, occ & !occ_white];
+
+        Position {
+            pieces: pieces,
+            piece_on: piece_on,
+            side_to_move: side_to_move,
+            castling: castling,
+            en_passant: en_passant,
+            hash: hash,
+            occ: occ,
+            occ_by: occ_by,
+        }
+    }
+
     pub fn get_piece_bitboard(&self, color: Color, piece: PieceType) -> &Bitboard {
         &self.pieces[color as usize * 6 + piece as usize]
     }

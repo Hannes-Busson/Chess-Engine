@@ -1,10 +1,10 @@
-use std::u64;
+use std::{ops::Add, time::Instant, u64};
 
 use crate::{
     file_to_number,
     movegen::{MagicTable, Move, MoveList},
     position::{Color, Position},
-    search::best_move,
+    search::{self, best_move, get_nodes},
     tt::TransponationTable,
 };
 
@@ -36,50 +36,20 @@ pub fn run() {
             "position" => match tokens[1] {
                 "startpos" => {
                     game = Position::start();
-                    for t in 3..tokens.len() {
-                        let mut coordinates = [' '; 4];
-                        let mut legal_moves = MoveList::new();
-                        game.all_moves(&table, &mut legal_moves);
-                        for i in 0..4 {
-                            coordinates[i] = tokens[t].as_bytes()[i] as char;
-                        }
-                        let file_from = file_to_number(coordinates[0]);
-                        let file_to = file_to_number(coordinates[2]);
-                        let from = file_from + (coordinates[1] as u8 - b'1') * 8;
-                        let to = file_to + (coordinates[3] as u8 - b'1') * 8;
-                        if from < 64 {
-                            if to < 64 {
-                                let prop_move = if tokens[t].len() == 5 {
-                                    let promo = tokens[t].as_bytes()[4] as char;
-                                    let promo_idx = match promo {
-                                        'n' => 0u8,
-                                        'b' => 1,
-                                        'r' => 2,
-                                        _ => 3,
-                                    };
-                                    legal_moves.as_slice().iter().find(|m| {
-                                        m.from() == from
-                                            && m.to() == to
-                                            && m.flags() >= 8
-                                            && (m.flags() & 3) == promo_idx
-                                    })
-                                } else {
-                                    legal_moves
-                                        .as_slice()
-                                        .iter()
-                                        .find(|m| m.from() == from && m.to() == to)
-                                };
-
-                                if let Some(mv) = prop_move {
-                                    let _ = game.make_move(*mv);
-                                } else {
-                                    println!("Invalid move.")
-                                }
-                            } else {
-                                println!("Invalid target square");
-                            }
-                        } else {
-                            println!("Invalid start square.");
+                    for i in 3..tokens.len() {
+                        game = do_move_from_coordinates(&mut game, tokens[i], &table);
+                    }
+                }
+                "fen" => {
+                    let mut string = String::new();
+                    string = string.add(tokens[2]);
+                    for i in 3..8 {
+                        string = string.add(" ").add(tokens[i]);
+                    }
+                    game = Position::from_fen(&string);
+                    if tokens.get(8) == Some(&"moves") {
+                        for i in 9..tokens.len() {
+                            game = do_move_from_coordinates(&mut game, tokens[i], &table);
                         }
                     }
                 }
@@ -95,10 +65,15 @@ pub fn run() {
                 }
                 "wtime" => match game.side_to_move {
                     Color::White => {
-                        let mut time_limit_ms = tokens[2].parse::<u64>().unwrap() / 30;
-                        if let Some(t) = tokens.get(6) {
-                            let time_increment = t.parse::<u64>().unwrap();
-                            time_limit_ms += time_increment * 3 / 4;
+                        let mut time_limit_ms = tokens[2].parse::<u64>().unwrap();
+                        if time_limit_ms < 10000 {
+                            time_limit_ms /= 10;
+                        } else {
+                            time_limit_ms /= 30;
+                            if let Some(t) = tokens.get(6) {
+                                let time_increment = t.parse::<u64>().unwrap();
+                                time_limit_ms += time_increment * 3 / 4;
+                            }
                         }
                         let best_mv =
                             best_move(&mut game, 100, &table, &mut t_table, time_limit_ms);
@@ -107,10 +82,15 @@ pub fn run() {
                         }
                     }
                     Color::Black => {
-                        let mut time_limit_ms = tokens[4].parse::<u64>().unwrap() / 30;
-                        if let Some(t) = tokens.get(8) {
-                            let time_increment = t.parse::<u64>().unwrap();
-                            time_limit_ms += time_increment * 3 / 4;
+                        let mut time_limit_ms = tokens[4].parse::<u64>().unwrap();
+                        if time_limit_ms < 10000 {
+                            time_limit_ms /= 10;
+                        } else {
+                            time_limit_ms /= 30;
+                            if let Some(t) = tokens.get(8) {
+                                let time_increment = t.parse::<u64>().unwrap();
+                                time_limit_ms += time_increment * 3 / 4;
+                            }
                         }
                         let best_mv =
                             best_move(&mut game, 100, &table, &mut t_table, time_limit_ms);
@@ -126,6 +106,27 @@ pub fn run() {
                     }
                 }
             },
+            "bench" => {
+                search::reset_stats();
+                let bench_start = Instant::now();
+                let positions = [
+                    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_string(),
+                    "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"
+                        .to_string(),
+                    "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1".to_string(),
+                    "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1".to_string(),
+                ];
+                for p in positions {
+                    let mut pos = Position::from_fen(&p);
+                    let best_mv = best_move(&mut pos, 8, &table, &mut t_table, u64::MAX);
+                    if let Some(mv) = best_mv {
+                        println!("bestmove {}", mv_to_string(mv));
+                    }
+                }
+                let nodes = get_nodes();
+                let nps = nodes * 1000 / bench_start.elapsed().as_millis().max(1) as u64;
+                println!("bench: {} nodes {} nps", nodes, nps);
+            }
             _ => println!("Command unknown"),
         }
     }
@@ -154,4 +155,52 @@ pub fn mv_to_string(mv: Move) -> String {
         }
     }
     move_string
+}
+
+pub fn do_move_from_coordinates(game: &mut Position, token: &str, table: &MagicTable) -> Position {
+    let mut coordinates = [' '; 4];
+    let mut legal_moves = MoveList::new();
+    game.all_moves(&table, &mut legal_moves);
+    for i in 0..4 {
+        coordinates[i] = token.as_bytes()[i] as char;
+    }
+    let file_from = file_to_number(coordinates[0]);
+    let file_to = file_to_number(coordinates[2]);
+    let from = file_from + (coordinates[1] as u8 - b'1') * 8;
+    let to = file_to + (coordinates[3] as u8 - b'1') * 8;
+    if from < 64 {
+        if to < 64 {
+            let prop_move = if token.len() == 5 {
+                let promo = token.as_bytes()[4] as char;
+                let promo_idx = match promo {
+                    'n' => 0u8,
+                    'b' => 1,
+                    'r' => 2,
+                    _ => 3,
+                };
+                legal_moves.as_slice().iter().find(|m| {
+                    m.from() == from
+                        && m.to() == to
+                        && m.flags() >= 8
+                        && (m.flags() & 3) == promo_idx
+                })
+            } else {
+                legal_moves
+                    .as_slice()
+                    .iter()
+                    .find(|m| m.from() == from && m.to() == to)
+            };
+
+            if let Some(mv) = prop_move {
+                let _ = game.make_move(*mv);
+            } else {
+                println!("Invalid move.")
+            }
+        } else {
+            println!("Invalid target square");
+        }
+    } else {
+        println!("Invalid start square.");
+    }
+    *game
 }
