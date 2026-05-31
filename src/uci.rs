@@ -115,10 +115,16 @@ pub fn run() {
                         .to_string(),
                     "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1".to_string(),
                     "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1".to_string(),
+                    "r2q1rk1/ppp2ppp/2n1bn2/2b1p3/3pP3/3P1NPP/PPP1NPB1/R1BQ1RK1 b - - 0 9"
+                        .to_string(),
+                    "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8".to_string(),
+                    "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10"
+                        .to_string(),
+                    "3r3r/1p4pp/2nb1k2/pP3p2/8/PB2PN2/p4PPP/R4RK1 b - - 0 1".to_string(),
                 ];
                 for p in positions {
                     let mut pos = Position::from_fen(&p);
-                    let best_mv = best_move(&mut pos, 8, &table, &mut t_table, u64::MAX);
+                    let best_mv = best_move(&mut pos, 10, &table, &mut t_table, u64::MAX);
                     if let Some(mv) = best_mv {
                         println!("bestmove {}", mv_to_string(mv));
                     }

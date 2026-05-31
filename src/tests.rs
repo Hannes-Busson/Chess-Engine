@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::bitboard::Bitboard;
-    use crate::movegen::{MagicTable, Move, MoveFlags, MoveGen};
+    use crate::movegen::{MagicTable, Move, MoveFlags, MoveGen, MoveList};
     use crate::position::{CastlingRights, Color, PieceType, Position};
 
     fn empty(side: Color) -> Position {
@@ -12,6 +12,8 @@ mod tests {
             castling: CastlingRights::NONE,
             en_passant: 64,
             hash: 0u64,
+            occ: Bitboard(0),
+            occ_by: [Bitboard(0); 2],
         }
     }
 
@@ -19,6 +21,8 @@ mod tests {
         let idx = color as usize * 6 + piece as usize;
         pos.pieces[idx].set_bit(sq);
         pos.piece_on[sq as usize] = idx as u8;
+        pos.occ.set_bit(sq);
+        pos.occ_by[color as usize].set_bit(sq);
     }
 
     fn has(moves: &[Move], from: u8, to: u8, flag: u8) -> bool {
@@ -27,7 +31,6 @@ mod tests {
             .any(|m| m.from() == from && m.to() == to && m.flags() == flag)
     }
 
-    // file: 0=a..7=h  rank: 0=rank1..7=rank8
     fn sq(file: u8, rank: u8) -> u8 {
         rank * 8 + file
     }
@@ -36,12 +39,29 @@ mod tests {
         MagicTable::init()
     }
 
+    fn moves(pos: &Position) -> MoveList {
+        let mut list = MoveList::new();
+        MoveGen::generate_moves(pos, &magic(), &mut list);
+        list
+    }
+
+    fn legal_moves(pos: &mut Position) -> MoveList {
+        let mut list = MoveList::new();
+        MoveGen::generate_legal_moves(pos, &magic(), &mut list);
+        list
+    }
+
     // ── Starting position ────────────────────────────────────────────────────
 
     #[test]
     fn starting_position_move_count() {
-        let moves = MoveGen::generate_moves(Position::start(), &magic());
-        assert_eq!(moves.len(), 20, "expected 20, got {}", moves.len());
+        let list = moves(&Position::start());
+        assert_eq!(
+            list.as_slice().len(),
+            20,
+            "expected 20, got {}",
+            list.as_slice().len()
+        );
     }
 
     // ── Pawn pushes ──────────────────────────────────────────────────────────
@@ -51,14 +71,12 @@ mod tests {
         let mut pos = empty(Color::White);
         place(&mut pos, Color::White, PieceType::King, sq(0, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(7, 7));
-        place(&mut pos, Color::White, PieceType::Pawn, sq(4, 1)); // e2
-        let moves = MoveGen::generate_moves(pos, &magic());
+        place(&mut pos, Color::White, PieceType::Pawn, sq(4, 1));
+        let list = moves(&pos);
+        let moves = list.as_slice();
+        assert!(has(moves, sq(4, 1), sq(4, 2), MoveFlags::QUIET), "e2-e3 missing");
         assert!(
-            has(&moves, sq(4, 1), sq(4, 2), MoveFlags::QUIET),
-            "e2-e3 missing"
-        );
-        assert!(
-            has(&moves, sq(4, 1), sq(4, 3), MoveFlags::DOUBLE_PAWN_PUSH),
+            has(moves, sq(4, 1), sq(4, 3), MoveFlags::DOUBLE_PAWN_PUSH),
             "e2-e4 missing"
         );
     }
@@ -68,14 +86,12 @@ mod tests {
         let mut pos = empty(Color::Black);
         place(&mut pos, Color::White, PieceType::King, sq(0, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(7, 7));
-        place(&mut pos, Color::Black, PieceType::Pawn, sq(4, 6)); // e7
-        let moves = MoveGen::generate_moves(pos, &magic());
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(4, 6));
+        let list = moves(&pos);
+        let moves = list.as_slice();
+        assert!(has(moves, sq(4, 6), sq(4, 5), MoveFlags::QUIET), "e7-e6 missing");
         assert!(
-            has(&moves, sq(4, 6), sq(4, 5), MoveFlags::QUIET),
-            "e7-e6 missing"
-        );
-        assert!(
-            has(&moves, sq(4, 6), sq(4, 4), MoveFlags::DOUBLE_PAWN_PUSH),
+            has(moves, sq(4, 6), sq(4, 4), MoveFlags::DOUBLE_PAWN_PUSH),
             "e7-e5 missing"
         );
     }
@@ -85,11 +101,11 @@ mod tests {
         let mut pos = empty(Color::White);
         place(&mut pos, Color::White, PieceType::King, sq(0, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(7, 7));
-        place(&mut pos, Color::White, PieceType::Pawn, sq(4, 1)); // e2
-        place(&mut pos, Color::Black, PieceType::Pawn, sq(4, 2)); // e3 blocks
-        let moves = MoveGen::generate_moves(pos, &magic());
+        place(&mut pos, Color::White, PieceType::Pawn, sq(4, 1));
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(4, 2));
+        let list = moves(&pos);
         assert!(
-            !moves.iter().any(|m| m.from() == sq(4, 1)),
+            !list.as_slice().iter().any(|m| m.from() == sq(4, 1)),
             "blocked pawn should have no pushes"
         );
     }
@@ -99,17 +115,13 @@ mod tests {
         let mut pos = empty(Color::White);
         place(&mut pos, Color::White, PieceType::King, sq(0, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(7, 7));
-        place(&mut pos, Color::White, PieceType::Pawn, sq(4, 1)); // e2
-        place(&mut pos, Color::Black, PieceType::Pawn, sq(4, 3)); // e4 blocks double push
-        let moves = MoveGen::generate_moves(pos, &magic());
+        place(&mut pos, Color::White, PieceType::Pawn, sq(4, 1));
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(4, 3));
+        let list = moves(&pos);
+        let moves = list.as_slice();
+        assert!(has(moves, sq(4, 1), sq(4, 2), MoveFlags::QUIET), "e2-e3 should be allowed");
         assert!(
-            has(&moves, sq(4, 1), sq(4, 2), MoveFlags::QUIET),
-            "e2-e3 should be allowed"
-        );
-        assert!(
-            !moves
-                .iter()
-                .any(|m| m.from() == sq(4, 1) && m.to() == sq(4, 3)),
+            !moves.iter().any(|m| m.from() == sq(4, 1) && m.to() == sq(4, 3)),
             "e2-e4 should be blocked"
         );
     }
@@ -121,18 +133,13 @@ mod tests {
         let mut pos = empty(Color::White);
         place(&mut pos, Color::White, PieceType::King, sq(0, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(7, 7));
-        place(&mut pos, Color::White, PieceType::Pawn, sq(4, 3)); // e4
-        place(&mut pos, Color::Black, PieceType::Pawn, sq(3, 4)); // d5
-        place(&mut pos, Color::Black, PieceType::Pawn, sq(5, 4)); // f5
-        let moves = MoveGen::generate_moves(pos, &magic());
-        assert!(
-            has(&moves, sq(4, 3), sq(3, 4), MoveFlags::CAPTURE),
-            "e4xd5 missing"
-        );
-        assert!(
-            has(&moves, sq(4, 3), sq(5, 4), MoveFlags::CAPTURE),
-            "e4xf5 missing"
-        );
+        place(&mut pos, Color::White, PieceType::Pawn, sq(4, 3));
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(3, 4));
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(5, 4));
+        let list = moves(&pos);
+        let moves = list.as_slice();
+        assert!(has(moves, sq(4, 3), sq(3, 4), MoveFlags::CAPTURE), "e4xd5 missing");
+        assert!(has(moves, sq(4, 3), sq(5, 4), MoveFlags::CAPTURE), "e4xf5 missing");
     }
 
     // ── En passant ───────────────────────────────────────────────────────────
@@ -142,36 +149,24 @@ mod tests {
         let mut pos = empty(Color::White);
         place(&mut pos, Color::White, PieceType::King, sq(0, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(7, 7));
-        place(&mut pos, Color::White, PieceType::Pawn, sq(4, 4)); // e5
-        place(&mut pos, Color::Black, PieceType::Pawn, sq(3, 4)); // d5
-        pos.en_passant = sq(3, 5); // d6
-        let moves = MoveGen::generate_moves(pos, &magic());
+        place(&mut pos, Color::White, PieceType::Pawn, sq(4, 4));
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(3, 4));
+        pos.en_passant = sq(3, 5);
+        let list = moves(&pos);
+        let moves = list.as_slice();
+        assert!(has(moves, sq(4, 4), sq(3, 5), MoveFlags::EN_PASSANT), "e5xd6 ep missing");
+        let ep_move = *moves.iter().find(|m| m.flags() == MoveFlags::EN_PASSANT).unwrap();
+        let mut new_pos = pos;
+        new_pos.make_move(ep_move);
         assert!(
-            has(&moves, sq(4, 4), sq(3, 5), MoveFlags::EN_PASSANT),
-            "e5xd6 ep missing"
-        );
-        let ep_move = *moves
-            .iter()
-            .find(|m| m.flags() == MoveFlags::EN_PASSANT)
-            .unwrap();
-        let new_pos = pos.make_move(ep_move);
-        assert!(
-            !new_pos
-                .get_piece_bitboard(Color::Black, PieceType::Pawn)
-                .get_bit(sq(3, 4)),
+            !new_pos.get_piece_bitboard(Color::Black, PieceType::Pawn).get_bit(sq(3, 4)),
             "black pawn d5 should be removed"
         );
         assert!(
-            new_pos
-                .get_piece_bitboard(Color::White, PieceType::Pawn)
-                .get_bit(sq(3, 5)),
+            new_pos.get_piece_bitboard(Color::White, PieceType::Pawn).get_bit(sq(3, 5)),
             "white pawn should be on d6"
         );
-        assert_eq!(
-            new_pos.piece_on[sq(3, 4) as usize],
-            64,
-            "piece_on d5 should be empty"
-        );
+        assert_eq!(new_pos.piece_on[sq(3, 4) as usize], 64, "piece_on d5 should be empty");
         assert_eq!(
             new_pos.piece_on[sq(3, 5) as usize],
             0 * 6 + 0,
@@ -184,52 +179,38 @@ mod tests {
         let mut pos = empty(Color::Black);
         place(&mut pos, Color::White, PieceType::King, sq(0, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(7, 7));
-        place(&mut pos, Color::Black, PieceType::Pawn, sq(3, 3)); // d4
-        place(&mut pos, Color::White, PieceType::Pawn, sq(4, 3)); // e4
-        pos.en_passant = sq(4, 2); // e3
-        let moves = MoveGen::generate_moves(pos, &magic());
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(3, 3));
+        place(&mut pos, Color::White, PieceType::Pawn, sq(4, 3));
+        pos.en_passant = sq(4, 2);
+        let list = moves(&pos);
+        let moves = list.as_slice();
+        assert!(has(moves, sq(3, 3), sq(4, 2), MoveFlags::EN_PASSANT), "d4xe3 ep missing");
+        let ep_move = *moves.iter().find(|m| m.flags() == MoveFlags::EN_PASSANT).unwrap();
+        let mut new_pos = pos;
+        new_pos.make_move(ep_move);
         assert!(
-            has(&moves, sq(3, 3), sq(4, 2), MoveFlags::EN_PASSANT),
-            "d4xe3 ep missing"
-        );
-        let ep_move = *moves
-            .iter()
-            .find(|m| m.flags() == MoveFlags::EN_PASSANT)
-            .unwrap();
-        let new_pos = pos.make_move(ep_move);
-        assert!(
-            !new_pos
-                .get_piece_bitboard(Color::White, PieceType::Pawn)
-                .get_bit(sq(4, 3)),
+            !new_pos.get_piece_bitboard(Color::White, PieceType::Pawn).get_bit(sq(4, 3)),
             "white pawn e4 should be removed"
         );
         assert!(
-            new_pos
-                .get_piece_bitboard(Color::Black, PieceType::Pawn)
-                .get_bit(sq(4, 2)),
+            new_pos.get_piece_bitboard(Color::Black, PieceType::Pawn).get_bit(sq(4, 2)),
             "black pawn should be on e3"
         );
-        assert_eq!(
-            new_pos.piece_on[sq(4, 3) as usize],
-            64,
-            "piece_on e4 should be empty"
-        );
+        assert_eq!(new_pos.piece_on[sq(4, 3) as usize], 64, "piece_on e4 should be empty");
     }
 
     #[test]
     fn white_double_push_sets_ep_square() {
         let pos = Position::start();
-        let moves = MoveGen::generate_moves(pos, &magic());
-        let dpp = *moves
+        let list = moves(&pos);
+        let dpp = *list
+            .as_slice()
             .iter()
             .find(|m| m.flags() == MoveFlags::DOUBLE_PAWN_PUSH && m.from() == sq(4, 1))
             .unwrap();
-        let new_pos = pos.make_move(dpp);
-        assert_eq!(
-            new_pos.en_passant,
-            sq(4, 2),
-            "ep square after e2-e4 should be e3"
-        );
+        let mut new_pos = pos;
+        new_pos.make_move(dpp);
+        assert_eq!(new_pos.en_passant, sq(4, 2), "ep square after e2-e4 should be e3");
     }
 
     #[test]
@@ -237,18 +218,16 @@ mod tests {
         let mut pos = empty(Color::Black);
         place(&mut pos, Color::White, PieceType::King, sq(0, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(7, 7));
-        place(&mut pos, Color::Black, PieceType::Pawn, sq(4, 6)); // e7
-        let moves = MoveGen::generate_moves(pos, &magic());
-        let dpp = *moves
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(4, 6));
+        let list = moves(&pos);
+        let dpp = *list
+            .as_slice()
             .iter()
             .find(|m| m.flags() == MoveFlags::DOUBLE_PAWN_PUSH)
             .unwrap();
-        let new_pos = pos.make_move(dpp);
-        assert_eq!(
-            new_pos.en_passant,
-            sq(4, 5),
-            "ep square after e7-e5 should be e6"
-        );
+        let mut new_pos = pos;
+        new_pos.make_move(dpp);
+        assert_eq!(new_pos.en_passant, sq(4, 5), "ep square after e7-e5 should be e6");
     }
 
     // ── Promotions ───────────────────────────────────────────────────────────
@@ -258,18 +237,15 @@ mod tests {
         let mut pos = empty(Color::White);
         place(&mut pos, Color::White, PieceType::King, sq(0, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(7, 7));
-        place(&mut pos, Color::White, PieceType::Pawn, sq(4, 6)); // e7
-        let moves = MoveGen::generate_moves(pos, &magic());
-        assert!(has(&moves, sq(4, 6), sq(4, 7), MoveFlags::KNIGHT_PROMOTION));
-        assert!(has(&moves, sq(4, 6), sq(4, 7), MoveFlags::BISHOP_PROMOTION));
-        assert!(has(&moves, sq(4, 6), sq(4, 7), MoveFlags::ROOK_PROMOTION));
-        assert!(has(&moves, sq(4, 6), sq(4, 7), MoveFlags::QUEEN_PROMOTION));
+        place(&mut pos, Color::White, PieceType::Pawn, sq(4, 6));
+        let list = moves(&pos);
+        let moves = list.as_slice();
+        assert!(has(moves, sq(4, 6), sq(4, 7), MoveFlags::KNIGHT_PROMOTION));
+        assert!(has(moves, sq(4, 6), sq(4, 7), MoveFlags::BISHOP_PROMOTION));
+        assert!(has(moves, sq(4, 6), sq(4, 7), MoveFlags::ROOK_PROMOTION));
+        assert!(has(moves, sq(4, 6), sq(4, 7), MoveFlags::QUEEN_PROMOTION));
         let count = moves.iter().filter(|m| m.from() == sq(4, 6)).count();
-        assert_eq!(
-            count, 4,
-            "exactly 4 promotion moves expected, got {}",
-            count
-        );
+        assert_eq!(count, 4, "exactly 4 promotion moves expected, got {}", count);
     }
 
     #[test]
@@ -277,33 +253,14 @@ mod tests {
         let mut pos = empty(Color::White);
         place(&mut pos, Color::White, PieceType::King, sq(0, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(7, 7));
-        place(&mut pos, Color::White, PieceType::Pawn, sq(4, 6)); // e7
-        place(&mut pos, Color::Black, PieceType::Rook, sq(5, 7)); // f8
-        let moves = MoveGen::generate_moves(pos, &magic());
-        assert!(has(
-            &moves,
-            sq(4, 6),
-            sq(5, 7),
-            MoveFlags::KNIGHT_PROMOTION_CAPTURE
-        ));
-        assert!(has(
-            &moves,
-            sq(4, 6),
-            sq(5, 7),
-            MoveFlags::BISHOP_PROMOTION_CAPTURE
-        ));
-        assert!(has(
-            &moves,
-            sq(4, 6),
-            sq(5, 7),
-            MoveFlags::ROOK_PROMOTION_CAPTURE
-        ));
-        assert!(has(
-            &moves,
-            sq(4, 6),
-            sq(5, 7),
-            MoveFlags::QUEEN_PROMOTION_CAPTURE
-        ));
+        place(&mut pos, Color::White, PieceType::Pawn, sq(4, 6));
+        place(&mut pos, Color::Black, PieceType::Rook, sq(5, 7));
+        let list = moves(&pos);
+        let moves = list.as_slice();
+        assert!(has(moves, sq(4, 6), sq(5, 7), MoveFlags::KNIGHT_PROMOTION_CAPTURE));
+        assert!(has(moves, sq(4, 6), sq(5, 7), MoveFlags::BISHOP_PROMOTION_CAPTURE));
+        assert!(has(moves, sq(4, 6), sq(5, 7), MoveFlags::ROOK_PROMOTION_CAPTURE));
+        assert!(has(moves, sq(4, 6), sq(5, 7), MoveFlags::QUEEN_PROMOTION_CAPTURE));
     }
 
     #[test]
@@ -311,23 +268,21 @@ mod tests {
         let mut pos = empty(Color::White);
         place(&mut pos, Color::White, PieceType::King, sq(0, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(7, 7));
-        place(&mut pos, Color::White, PieceType::Pawn, sq(4, 6)); // e7
-        let moves = MoveGen::generate_moves(pos, &magic());
-        let qp = *moves
+        place(&mut pos, Color::White, PieceType::Pawn, sq(4, 6));
+        let list = moves(&pos);
+        let qp = *list
+            .as_slice()
             .iter()
             .find(|m| m.flags() == MoveFlags::QUEEN_PROMOTION)
             .unwrap();
-        let new_pos = pos.make_move(qp);
+        let mut new_pos = pos;
+        new_pos.make_move(qp);
         assert!(
-            new_pos
-                .get_piece_bitboard(Color::White, PieceType::Queen)
-                .get_bit(sq(4, 7)),
+            new_pos.get_piece_bitboard(Color::White, PieceType::Queen).get_bit(sq(4, 7)),
             "white queen should be on e8"
         );
         assert!(
-            !new_pos
-                .get_piece_bitboard(Color::White, PieceType::Pawn)
-                .get_bit(sq(4, 6)),
+            !new_pos.get_piece_bitboard(Color::White, PieceType::Pawn).get_bit(sq(4, 6)),
             "pawn should be gone from e7"
         );
         assert_eq!(
@@ -342,12 +297,13 @@ mod tests {
         let mut pos = empty(Color::Black);
         place(&mut pos, Color::White, PieceType::King, sq(0, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(7, 7));
-        place(&mut pos, Color::Black, PieceType::Pawn, sq(4, 1)); // e2
-        let moves = MoveGen::generate_moves(pos, &magic());
-        assert!(has(&moves, sq(4, 1), sq(4, 0), MoveFlags::KNIGHT_PROMOTION));
-        assert!(has(&moves, sq(4, 1), sq(4, 0), MoveFlags::BISHOP_PROMOTION));
-        assert!(has(&moves, sq(4, 1), sq(4, 0), MoveFlags::ROOK_PROMOTION));
-        assert!(has(&moves, sq(4, 1), sq(4, 0), MoveFlags::QUEEN_PROMOTION));
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(4, 1));
+        let list = moves(&pos);
+        let moves = list.as_slice();
+        assert!(has(moves, sq(4, 1), sq(4, 0), MoveFlags::KNIGHT_PROMOTION));
+        assert!(has(moves, sq(4, 1), sq(4, 0), MoveFlags::BISHOP_PROMOTION));
+        assert!(has(moves, sq(4, 1), sq(4, 0), MoveFlags::ROOK_PROMOTION));
+        assert!(has(moves, sq(4, 1), sq(4, 0), MoveFlags::QUEEN_PROMOTION));
     }
 
     // ── Castling ─────────────────────────────────────────────────────────────
@@ -356,41 +312,25 @@ mod tests {
     fn white_kingside_castle_generate_and_make() {
         let mut pos = empty(Color::White);
         pos.castling = CastlingRights::WK;
-        place(&mut pos, Color::White, PieceType::King, sq(4, 0)); // e1
-        place(&mut pos, Color::White, PieceType::Rook, sq(7, 0)); // h1
+        place(&mut pos, Color::White, PieceType::King, sq(4, 0));
+        place(&mut pos, Color::White, PieceType::Rook, sq(7, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(4, 7));
-        let moves = MoveGen::generate_moves(pos, &magic());
+        let list = moves(&pos);
+        let moves = list.as_slice();
+        assert!(has(moves, sq(4, 0), sq(6, 0), MoveFlags::KINGSIDE_CASTLE), "kingside castle missing");
+        let castle = *moves.iter().find(|m| m.flags() == MoveFlags::KINGSIDE_CASTLE).unwrap();
+        let mut new_pos = pos;
+        new_pos.make_move(castle);
         assert!(
-            has(&moves, sq(4, 0), sq(6, 0), MoveFlags::KINGSIDE_CASTLE),
-            "kingside castle missing"
-        );
-        let castle = *moves
-            .iter()
-            .find(|m| m.flags() == MoveFlags::KINGSIDE_CASTLE)
-            .unwrap();
-        let new_pos = pos.make_move(castle);
-        assert!(
-            new_pos
-                .get_piece_bitboard(Color::White, PieceType::King)
-                .get_bit(sq(6, 0)),
+            new_pos.get_piece_bitboard(Color::White, PieceType::King).get_bit(sq(6, 0)),
             "king should be on g1"
         );
         assert!(
-            new_pos
-                .get_piece_bitboard(Color::White, PieceType::Rook)
-                .get_bit(sq(5, 0)),
+            new_pos.get_piece_bitboard(Color::White, PieceType::Rook).get_bit(sq(5, 0)),
             "rook should be on f1"
         );
-        assert!(
-            !new_pos
-                .get_piece_bitboard(Color::White, PieceType::King)
-                .get_bit(sq(4, 0))
-        );
-        assert!(
-            !new_pos
-                .get_piece_bitboard(Color::White, PieceType::Rook)
-                .get_bit(sq(7, 0))
-        );
+        assert!(!new_pos.get_piece_bitboard(Color::White, PieceType::King).get_bit(sq(4, 0)));
+        assert!(!new_pos.get_piece_bitboard(Color::White, PieceType::Rook).get_bit(sq(7, 0)));
         assert_eq!(new_pos.piece_on[sq(4, 0) as usize], 64);
         assert_eq!(new_pos.piece_on[sq(7, 0) as usize], 64);
         assert_eq!(
@@ -404,34 +344,21 @@ mod tests {
     fn white_queenside_castle_generate_and_make() {
         let mut pos = empty(Color::White);
         pos.castling = CastlingRights::WQ;
-        place(&mut pos, Color::White, PieceType::King, sq(4, 0)); // e1
-        place(&mut pos, Color::White, PieceType::Rook, sq(0, 0)); // a1
+        place(&mut pos, Color::White, PieceType::King, sq(4, 0));
+        place(&mut pos, Color::White, PieceType::Rook, sq(0, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(4, 7));
-        let moves = MoveGen::generate_moves(pos, &magic());
+        let list = moves(&pos);
+        let moves = list.as_slice();
         assert!(
-            has(&moves, sq(4, 0), sq(2, 0), MoveFlags::QUEENSIDE_CASTLE),
+            has(moves, sq(4, 0), sq(2, 0), MoveFlags::QUEENSIDE_CASTLE),
             "queenside castle missing"
         );
-        let castle = *moves
-            .iter()
-            .find(|m| m.flags() == MoveFlags::QUEENSIDE_CASTLE)
-            .unwrap();
-        let new_pos = pos.make_move(castle);
-        assert!(
-            new_pos
-                .get_piece_bitboard(Color::White, PieceType::King)
-                .get_bit(sq(2, 0))
-        );
-        assert!(
-            new_pos
-                .get_piece_bitboard(Color::White, PieceType::Rook)
-                .get_bit(sq(3, 0))
-        );
-        assert!(
-            !new_pos
-                .get_piece_bitboard(Color::White, PieceType::Rook)
-                .get_bit(sq(0, 0))
-        );
+        let castle = *moves.iter().find(|m| m.flags() == MoveFlags::QUEENSIDE_CASTLE).unwrap();
+        let mut new_pos = pos;
+        new_pos.make_move(castle);
+        assert!(new_pos.get_piece_bitboard(Color::White, PieceType::King).get_bit(sq(2, 0)));
+        assert!(new_pos.get_piece_bitboard(Color::White, PieceType::Rook).get_bit(sq(3, 0)));
+        assert!(!new_pos.get_piece_bitboard(Color::White, PieceType::Rook).get_bit(sq(0, 0)));
         assert_eq!(new_pos.piece_on[sq(0, 0) as usize], 64);
     }
 
@@ -440,33 +367,20 @@ mod tests {
         let mut pos = empty(Color::Black);
         pos.castling = CastlingRights::BK;
         place(&mut pos, Color::White, PieceType::King, sq(0, 0));
-        place(&mut pos, Color::Black, PieceType::King, sq(4, 7)); // e8
-        place(&mut pos, Color::Black, PieceType::Rook, sq(7, 7)); // h8
-        let moves = MoveGen::generate_moves(pos, &magic());
+        place(&mut pos, Color::Black, PieceType::King, sq(4, 7));
+        place(&mut pos, Color::Black, PieceType::Rook, sq(7, 7));
+        let list = moves(&pos);
+        let moves = list.as_slice();
         assert!(
-            has(&moves, sq(4, 7), sq(6, 7), MoveFlags::KINGSIDE_CASTLE),
+            has(moves, sq(4, 7), sq(6, 7), MoveFlags::KINGSIDE_CASTLE),
             "black kingside castle missing"
         );
-        let castle = *moves
-            .iter()
-            .find(|m| m.flags() == MoveFlags::KINGSIDE_CASTLE)
-            .unwrap();
-        let new_pos = pos.make_move(castle);
-        assert!(
-            new_pos
-                .get_piece_bitboard(Color::Black, PieceType::King)
-                .get_bit(sq(6, 7))
-        );
-        assert!(
-            new_pos
-                .get_piece_bitboard(Color::Black, PieceType::Rook)
-                .get_bit(sq(5, 7))
-        );
-        assert!(
-            !new_pos
-                .get_piece_bitboard(Color::Black, PieceType::Rook)
-                .get_bit(sq(7, 7))
-        );
+        let castle = *moves.iter().find(|m| m.flags() == MoveFlags::KINGSIDE_CASTLE).unwrap();
+        let mut new_pos = pos;
+        new_pos.make_move(castle);
+        assert!(new_pos.get_piece_bitboard(Color::Black, PieceType::King).get_bit(sq(6, 7)));
+        assert!(new_pos.get_piece_bitboard(Color::Black, PieceType::Rook).get_bit(sq(5, 7)));
+        assert!(!new_pos.get_piece_bitboard(Color::Black, PieceType::Rook).get_bit(sq(7, 7)));
     }
 
     #[test]
@@ -474,33 +388,20 @@ mod tests {
         let mut pos = empty(Color::Black);
         pos.castling = CastlingRights::BQ;
         place(&mut pos, Color::White, PieceType::King, sq(0, 0));
-        place(&mut pos, Color::Black, PieceType::King, sq(4, 7)); // e8
-        place(&mut pos, Color::Black, PieceType::Rook, sq(0, 7)); // a8
-        let moves = MoveGen::generate_moves(pos, &magic());
+        place(&mut pos, Color::Black, PieceType::King, sq(4, 7));
+        place(&mut pos, Color::Black, PieceType::Rook, sq(0, 7));
+        let list = moves(&pos);
+        let moves = list.as_slice();
         assert!(
-            has(&moves, sq(4, 7), sq(2, 7), MoveFlags::QUEENSIDE_CASTLE),
+            has(moves, sq(4, 7), sq(2, 7), MoveFlags::QUEENSIDE_CASTLE),
             "black queenside castle missing"
         );
-        let castle = *moves
-            .iter()
-            .find(|m| m.flags() == MoveFlags::QUEENSIDE_CASTLE)
-            .unwrap();
-        let new_pos = pos.make_move(castle);
-        assert!(
-            new_pos
-                .get_piece_bitboard(Color::Black, PieceType::King)
-                .get_bit(sq(2, 7))
-        );
-        assert!(
-            new_pos
-                .get_piece_bitboard(Color::Black, PieceType::Rook)
-                .get_bit(sq(3, 7))
-        );
-        assert_eq!(
-            new_pos.piece_on[sq(0, 7) as usize],
-            64,
-            "a8 should be empty"
-        );
+        let castle = *moves.iter().find(|m| m.flags() == MoveFlags::QUEENSIDE_CASTLE).unwrap();
+        let mut new_pos = pos;
+        new_pos.make_move(castle);
+        assert!(new_pos.get_piece_bitboard(Color::Black, PieceType::King).get_bit(sq(2, 7)));
+        assert!(new_pos.get_piece_bitboard(Color::Black, PieceType::Rook).get_bit(sq(3, 7)));
+        assert_eq!(new_pos.piece_on[sq(0, 7) as usize], 64, "a8 should be empty");
     }
 
     #[test]
@@ -509,13 +410,11 @@ mod tests {
         pos.castling = CastlingRights::WK;
         place(&mut pos, Color::White, PieceType::King, sq(4, 0));
         place(&mut pos, Color::White, PieceType::Rook, sq(7, 0));
-        place(&mut pos, Color::White, PieceType::Bishop, sq(5, 0)); // f1 blocks
+        place(&mut pos, Color::White, PieceType::Bishop, sq(5, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(4, 7));
-        let moves = MoveGen::generate_moves(pos, &magic());
+        let list = moves(&pos);
         assert!(
-            !moves
-                .iter()
-                .any(|m| m.flags() == MoveFlags::KINGSIDE_CASTLE),
+            !list.as_slice().iter().any(|m| m.flags() == MoveFlags::KINGSIDE_CASTLE),
             "castle should be blocked by piece on f1"
         );
     }
@@ -524,15 +423,13 @@ mod tests {
     fn castle_blocked_by_attacked_square() {
         let mut pos = empty(Color::White);
         pos.castling = CastlingRights::WK;
-        place(&mut pos, Color::White, PieceType::King, sq(4, 0)); // e1
-        place(&mut pos, Color::White, PieceType::Rook, sq(7, 0)); // h1
+        place(&mut pos, Color::White, PieceType::King, sq(4, 0));
+        place(&mut pos, Color::White, PieceType::Rook, sq(7, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(4, 7));
-        place(&mut pos, Color::Black, PieceType::Rook, sq(6, 7)); // g8 attacks g1
-        let moves = MoveGen::generate_moves(pos, &magic());
+        place(&mut pos, Color::Black, PieceType::Rook, sq(6, 7));
+        let list = moves(&pos);
         assert!(
-            !moves
-                .iter()
-                .any(|m| m.flags() == MoveFlags::KINGSIDE_CASTLE),
+            !list.as_slice().iter().any(|m| m.flags() == MoveFlags::KINGSIDE_CASTLE),
             "castle should be blocked: g1 is attacked"
         );
     }
@@ -543,14 +440,16 @@ mod tests {
     fn castling_rights_cleared_after_king_move() {
         let mut pos = empty(Color::White);
         pos.castling = CastlingRights::ALL;
-        place(&mut pos, Color::White, PieceType::King, sq(4, 0)); // e1
+        place(&mut pos, Color::White, PieceType::King, sq(4, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(4, 7));
-        let moves = MoveGen::generate_moves(pos, &magic());
-        let km = *moves
+        let list = moves(&pos);
+        let km = *list
+            .as_slice()
             .iter()
             .find(|m| m.from() == sq(4, 0) && m.flags() == MoveFlags::QUIET)
             .unwrap();
-        let new_pos = pos.make_move(km);
+        let mut new_pos = pos;
+        new_pos.make_move(km);
         assert_eq!(
             new_pos.castling & (CastlingRights::WK | CastlingRights::WQ),
             0,
@@ -562,15 +461,17 @@ mod tests {
     fn castling_rights_cleared_after_rook_h1_move() {
         let mut pos = empty(Color::White);
         pos.castling = CastlingRights::WK;
-        place(&mut pos, Color::White, PieceType::King, sq(0, 0)); // a1
-        place(&mut pos, Color::White, PieceType::Rook, sq(7, 0)); // h1
+        place(&mut pos, Color::White, PieceType::King, sq(0, 0));
+        place(&mut pos, Color::White, PieceType::Rook, sq(7, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(7, 7));
-        let moves = MoveGen::generate_moves(pos, &magic());
-        let rm = *moves
+        let list = moves(&pos);
+        let rm = *list
+            .as_slice()
             .iter()
             .find(|m| m.from() == sq(7, 0) && m.flags() == MoveFlags::QUIET)
             .unwrap();
-        let new_pos = pos.make_move(rm);
+        let mut new_pos = pos;
+        new_pos.make_move(rm);
         assert_eq!(
             new_pos.castling & CastlingRights::WK,
             0,
@@ -585,28 +486,24 @@ mod tests {
         let mut pos = empty(Color::White);
         place(&mut pos, Color::White, PieceType::King, sq(0, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(7, 7));
-        place(&mut pos, Color::White, PieceType::Rook, sq(0, 3)); // a4
-        place(&mut pos, Color::Black, PieceType::Pawn, sq(0, 6)); // a7
-        let moves = MoveGen::generate_moves(pos, &magic());
-        let cap = *moves
+        place(&mut pos, Color::White, PieceType::Rook, sq(0, 3));
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(0, 6));
+        let list = moves(&pos);
+        let cap = *list
+            .as_slice()
             .iter()
             .find(|m| m.flags() == MoveFlags::CAPTURE && m.from() == sq(0, 3))
             .unwrap();
-        let new_pos = pos.make_move(cap);
+        let mut new_pos = pos;
+        new_pos.make_move(cap);
         assert_eq!(
             new_pos.piece_on[sq(0, 6) as usize],
             0 * 6 + 3,
             "a7 should have white rook"
         );
-        assert_eq!(
-            new_pos.piece_on[sq(0, 3) as usize],
-            64,
-            "a4 should be empty"
-        );
+        assert_eq!(new_pos.piece_on[sq(0, 3) as usize], 64, "a4 should be empty");
         assert!(
-            !new_pos
-                .get_piece_bitboard(Color::Black, PieceType::Pawn)
-                .get_bit(sq(0, 6)),
+            !new_pos.get_piece_bitboard(Color::Black, PieceType::Pawn).get_bit(sq(0, 6)),
             "black pawn a7 should be gone"
         );
     }
@@ -616,15 +513,15 @@ mod tests {
     #[test]
     fn is_attacked_by_knight() {
         let mut pos = empty(Color::White);
-        place(&mut pos, Color::White, PieceType::King, sq(4, 0)); // e1
+        place(&mut pos, Color::White, PieceType::King, sq(4, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(4, 7));
-        place(&mut pos, Color::Black, PieceType::Knight, sq(5, 2)); // f3 attacks e1
+        place(&mut pos, Color::Black, PieceType::Knight, sq(5, 2));
         assert!(
-            MoveGen::is_attacked(sq(4, 0), &pos, &magic()),
+            MoveGen::is_attacked(Color::White, sq(4, 0), &pos, &magic()),
             "e1 should be attacked by knight on f3"
         );
         assert!(
-            !MoveGen::is_attacked(sq(3, 0), &pos, &magic()),
+            !MoveGen::is_attacked(Color::White, sq(3, 0), &pos, &magic()),
             "d1 should not be attacked"
         );
     }
@@ -632,11 +529,11 @@ mod tests {
     #[test]
     fn is_attacked_by_pawn() {
         let mut pos = empty(Color::White);
-        place(&mut pos, Color::White, PieceType::King, sq(4, 0)); // e1
+        place(&mut pos, Color::White, PieceType::King, sq(4, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(4, 7));
-        place(&mut pos, Color::Black, PieceType::Pawn, sq(3, 1)); // d2 attacks e1
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(3, 1));
         assert!(
-            MoveGen::is_attacked(sq(4, 0), &pos, &magic()),
+            MoveGen::is_attacked(Color::White, sq(4, 0), &pos, &magic()),
             "e1 should be attacked by pawn on d2"
         );
     }
@@ -644,11 +541,11 @@ mod tests {
     #[test]
     fn is_attacked_by_bishop() {
         let mut pos = empty(Color::White);
-        place(&mut pos, Color::White, PieceType::King, sq(4, 0)); // e1
+        place(&mut pos, Color::White, PieceType::King, sq(4, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(4, 7));
-        place(&mut pos, Color::Black, PieceType::Bishop, sq(1, 3)); // b4 attacks e1
+        place(&mut pos, Color::Black, PieceType::Bishop, sq(1, 3));
         assert!(
-            MoveGen::is_attacked(sq(4, 0), &pos, &magic()),
+            MoveGen::is_attacked(Color::White, sq(4, 0), &pos, &magic()),
             "e1 should be attacked by bishop on b4"
         );
     }
@@ -656,11 +553,11 @@ mod tests {
     #[test]
     fn is_attacked_by_rook() {
         let mut pos = empty(Color::White);
-        place(&mut pos, Color::White, PieceType::King, sq(4, 0)); // e1
+        place(&mut pos, Color::White, PieceType::King, sq(4, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(4, 7));
-        place(&mut pos, Color::Black, PieceType::Rook, sq(4, 5)); // e6 attacks e1
+        place(&mut pos, Color::Black, PieceType::Rook, sq(4, 5));
         assert!(
-            MoveGen::is_attacked(sq(4, 0), &pos, &magic()),
+            MoveGen::is_attacked(Color::White, sq(4, 0), &pos, &magic()),
             "e1 should be attacked by rook on e6"
         );
     }
@@ -679,7 +576,7 @@ mod tests {
 
     #[test]
     fn bishop_attacks_d4_empty_board() {
-        let attacks = MoveGen::bishop_attacks(sq(3, 3), Bitboard(0), &magic()); // d4
+        let attacks = MoveGen::bishop_attacks(sq(3, 3), Bitboard(0), &magic());
         assert_eq!(
             attacks.0.count_ones(),
             13,
@@ -702,14 +599,11 @@ mod tests {
     #[test]
     fn rook_blocker_stops_ray_but_includes_capture_square() {
         let mut occ = Bitboard(0);
-        occ.set_bit(sq(0, 3)); // a4 is a blocker
-        let attacks = MoveGen::rook_attacks(sq(0, 0), occ, &magic()); // rook on a1
+        occ.set_bit(sq(0, 3));
+        let attacks = MoveGen::rook_attacks(sq(0, 0), occ, &magic());
         assert!(attacks.get_bit(sq(0, 1)), "a2 reachable");
         assert!(attacks.get_bit(sq(0, 2)), "a3 reachable");
-        assert!(
-            attacks.get_bit(sq(0, 3)),
-            "a4 (blocker) included as capture target"
-        );
+        assert!(attacks.get_bit(sq(0, 3)), "a4 (blocker) included as capture target");
         assert!(!attacks.get_bit(sq(0, 4)), "a5 should be cut off");
     }
 
@@ -718,8 +612,8 @@ mod tests {
     #[test]
     fn rook_d2_blocked_at_d6() {
         let mut occ = Bitboard(0);
-        occ.set_bit(sq(3, 5)); // d6 blocker
-        let attacks = MoveGen::rook_attacks(sq(3, 1), occ, &magic()); // rook on d2
+        occ.set_bit(sq(3, 5));
+        let attacks = MoveGen::rook_attacks(sq(3, 1), occ, &magic());
         assert!(attacks.get_bit(sq(3, 2)), "d3 reachable");
         assert!(attacks.get_bit(sq(3, 4)), "d5 reachable");
         assert!(attacks.get_bit(sq(3, 5)), "d6 included as capture target");
@@ -729,13 +623,12 @@ mod tests {
 
     #[test]
     fn rook_d2_blocked_at_d6_with_rank_pawns() {
-        // mirrors the actual game position: e2/f2/g2 pawns also in occupancy
         let mut occ = Bitboard(0);
-        occ.set_bit(sq(3, 5)); // d6 blocker
-        occ.set_bit(sq(4, 1)); // e2
-        occ.set_bit(sq(5, 1)); // f2
-        occ.set_bit(sq(6, 1)); // g2
-        let attacks = MoveGen::rook_attacks(sq(3, 1), occ, &magic()); // rook on d2
+        occ.set_bit(sq(3, 5));
+        occ.set_bit(sq(4, 1));
+        occ.set_bit(sq(5, 1));
+        occ.set_bit(sq(6, 1));
+        let attacks = MoveGen::rook_attacks(sq(3, 1), occ, &magic());
         assert!(attacks.get_bit(sq(3, 2)), "d3 reachable");
         assert!(attacks.get_bit(sq(3, 4)), "d5 reachable");
         assert!(attacks.get_bit(sq(3, 5)), "d6 included as capture target");
@@ -752,12 +645,15 @@ mod tests {
             let mut subset = 0u64;
             loop {
                 let expected = MoveGen::rook_attacks_slow(sq, Bitboard(subset));
-                let index = (subset.wrapping_mul(table.rook_magics[sq as usize]) >> shift) as usize;
+                let index =
+                    (subset.wrapping_mul(table.rook_magics[sq as usize]) >> shift) as usize;
                 let got = table.rook_attacks[sq as usize][index];
                 assert_eq!(
-                    got.0, expected.0,
+                    got.0,
+                    expected.0,
                     "rook magic collision on sq={sq}: occupancy={subset:#066b} expected={:#066b} got={:#066b}",
-                    expected.0, got.0
+                    expected.0,
+                    got.0
                 );
                 subset = subset.wrapping_sub(mask) & mask;
                 if subset == 0 {
@@ -780,9 +676,11 @@ mod tests {
                     (subset.wrapping_mul(table.bishop_magics[sq as usize]) >> shift) as usize;
                 let got = table.bishop_attacks[sq as usize][index];
                 assert_eq!(
-                    got.0, expected.0,
+                    got.0,
+                    expected.0,
                     "bishop magic collision on sq={sq}: occupancy={subset:#066b} expected={:#066b} got={:#066b}",
-                    expected.0, got.0
+                    expected.0,
+                    got.0
                 );
                 subset = subset.wrapping_sub(mask) & mask;
                 if subset == 0 {
@@ -794,76 +692,21 @@ mod tests {
 
     #[test]
     fn rook_d8_blocked_at_d6_full_position() {
-        // exact piece layout from the bug: queen on d8 attacks south,
-        // should be blocked by pawn on d6 before reaching d2 (white king)
         let mut occ = Bitboard(0);
-        occ.set_bit(sq(3, 5)); // d6 black pawn
-        occ.set_bit(sq(3, 1)); // d2 white king
-        occ.set_bit(sq(4, 7)); // e8 black king
-        occ.set_bit(sq(5, 7)); // f8 black bishop
-        occ.set_bit(sq(2, 1)); // c2 white pawn
-        occ.set_bit(sq(4, 1)); // e2 white pawn
-        occ.set_bit(sq(5, 1)); // f2 white pawn
-        occ.set_bit(sq(6, 1)); // g2 white pawn
-        occ.set_bit(sq(7, 1)); // h2 white pawn
-        let attacks = MoveGen::rook_attacks(sq(3, 7), occ, &magic()); // rook on d8
+        occ.set_bit(sq(3, 5));
+        occ.set_bit(sq(3, 1));
+        occ.set_bit(sq(4, 7));
+        occ.set_bit(sq(5, 7));
+        occ.set_bit(sq(2, 1));
+        occ.set_bit(sq(4, 1));
+        occ.set_bit(sq(5, 1));
+        occ.set_bit(sq(6, 1));
+        occ.set_bit(sq(7, 1));
+        let attacks = MoveGen::rook_attacks(sq(3, 7), occ, &magic());
         assert!(attacks.get_bit(sq(3, 6)), "d7 reachable");
         assert!(attacks.get_bit(sq(3, 5)), "d6 included as capture target");
         assert!(!attacks.get_bit(sq(3, 4)), "d5 must be cut off");
-        assert!(
-            !attacks.get_bit(sq(3, 1)),
-            "d2 must be cut off (king capture!)"
-        );
-    }
-
-    #[test]
-    fn queen_cannot_jump_pawn_exact_game_position() {
-        // exact board from the bug report:
-        // 8 . . . . k b . r
-        // 7 . p p . p p p p
-        // 6 . . . p . . . .
-        // 5 . . . . . . . .
-        // 4 . . . . . . b .
-        // 3 P . . . . . . .
-        // 2 . . P q P P P P
-        // 1 . . B Q N B . R
-        let mut pos = empty(Color::Black);
-        // black pieces
-        place(&mut pos, Color::Black, PieceType::King, sq(4, 7)); // e8
-        place(&mut pos, Color::Black, PieceType::Bishop, sq(5, 7)); // f8
-        place(&mut pos, Color::Black, PieceType::Rook, sq(7, 7)); // h8
-        place(&mut pos, Color::Black, PieceType::Pawn, sq(1, 6)); // b7
-        place(&mut pos, Color::Black, PieceType::Pawn, sq(2, 6)); // c7
-        place(&mut pos, Color::Black, PieceType::Pawn, sq(4, 6)); // e7
-        place(&mut pos, Color::Black, PieceType::Pawn, sq(5, 6)); // f7
-        place(&mut pos, Color::Black, PieceType::Pawn, sq(6, 6)); // g7
-        place(&mut pos, Color::Black, PieceType::Pawn, sq(7, 6)); // h7
-        place(&mut pos, Color::Black, PieceType::Pawn, sq(3, 5)); // d6
-        place(&mut pos, Color::Black, PieceType::Bishop, sq(6, 3)); // g4
-        place(&mut pos, Color::Black, PieceType::Queen, sq(3, 1)); // d2
-        // white pieces
-        place(&mut pos, Color::White, PieceType::King, sq(4, 0)); // e1 (moved to e1 for validity)
-        place(&mut pos, Color::White, PieceType::Pawn, sq(0, 2)); // a3
-        place(&mut pos, Color::White, PieceType::Pawn, sq(2, 1)); // c2
-        place(&mut pos, Color::White, PieceType::Pawn, sq(4, 1)); // e2
-        place(&mut pos, Color::White, PieceType::Pawn, sq(5, 1)); // f2
-        place(&mut pos, Color::White, PieceType::Pawn, sq(6, 1)); // g2
-        place(&mut pos, Color::White, PieceType::Pawn, sq(7, 1)); // h2
-        place(&mut pos, Color::White, PieceType::Bishop, sq(2, 0)); // c1
-        place(&mut pos, Color::White, PieceType::Queen, sq(3, 0)); // d1
-        place(&mut pos, Color::White, PieceType::Knight, sq(4, 0)); // e1 conflicts — use f1 instead
-        place(&mut pos, Color::White, PieceType::Bishop, sq(5, 0)); // f1
-        place(&mut pos, Color::White, PieceType::Rook, sq(7, 0)); // h1
-        let moves = MoveGen::generate_moves(pos, &magic());
-        let queen_moves: Vec<_> = moves.iter().filter(|m| m.from() == sq(3, 1)).collect();
-        assert!(
-            !queen_moves.iter().any(|m| m.to() == sq(3, 6)),
-            "queen on d2 must not reach d7 (jumps own pawn on d6)"
-        );
-        assert!(
-            !queen_moves.iter().any(|m| m.to() == sq(3, 7)),
-            "queen on d2 must not reach d8 (jumps own pawn on d6)"
-        );
+        assert!(!attacks.get_bit(sq(3, 1)), "d2 must be cut off (king capture!)");
     }
 
     #[test]
@@ -871,10 +714,10 @@ mod tests {
         let mut pos = empty(Color::Black);
         place(&mut pos, Color::White, PieceType::King, sq(0, 0));
         place(&mut pos, Color::Black, PieceType::King, sq(4, 7));
-        place(&mut pos, Color::Black, PieceType::Queen, sq(3, 1)); // d2
-        place(&mut pos, Color::Black, PieceType::Pawn, sq(3, 5)); // d6
-        let moves = MoveGen::generate_moves(pos, &magic());
-        let queen_moves: Vec<_> = moves.iter().filter(|m| m.from() == sq(3, 1)).collect();
+        place(&mut pos, Color::Black, PieceType::Queen, sq(3, 1));
+        place(&mut pos, Color::Black, PieceType::Pawn, sq(3, 5));
+        let list = moves(&pos);
+        let queen_moves: Vec<_> = list.as_slice().iter().filter(|m| m.from() == sq(3, 1)).collect();
         assert!(
             !queen_moves.iter().any(|m| m.to() == sq(3, 6)),
             "queen on d2 must not reach d7 with own pawn on d6"
@@ -890,19 +733,21 @@ mod tests {
     #[test]
     fn legal_moves_king_in_check_must_resolve() {
         let mut pos = empty(Color::White);
-        place(&mut pos, Color::White, PieceType::King, sq(4, 0)); // e1
-        place(&mut pos, Color::White, PieceType::Rook, sq(0, 0)); // a1
-        place(&mut pos, Color::Black, PieceType::King, sq(3, 7)); // d8
-        place(&mut pos, Color::Black, PieceType::Rook, sq(4, 6)); // e7 attacks e1
-        let legal = MoveGen::generate_legal_moves(pos, &magic());
+        place(&mut pos, Color::White, PieceType::King, sq(4, 0));
+        place(&mut pos, Color::White, PieceType::Rook, sq(0, 0));
+        place(&mut pos, Color::Black, PieceType::King, sq(3, 7));
+        place(&mut pos, Color::Black, PieceType::Rook, sq(4, 6));
+        let legal_list = legal_moves(&mut pos);
+        let legal: Vec<Move> = legal_list.as_slice().to_vec();
         for m in &legal {
-            let new_pos = pos.make_move(*m);
-            let mut king_bb = *new_pos.get_piece_bitboard(Color::White, PieceType::King);
-            let king_sq = king_bb.pop_lsb();
-            let mut check_pos = new_pos;
-            check_pos.side_to_move = Color::White;
+            let mut new_pos = pos;
+            new_pos.make_move(*m);
+            let king_sq = new_pos
+                .get_piece_bitboard(Color::White, PieceType::King)
+                .0
+                .trailing_zeros() as u8;
             assert!(
-                !MoveGen::is_attacked(king_sq, &check_pos, &magic()),
+                !MoveGen::is_attacked(Color::White, king_sq, &new_pos, &magic()),
                 "legal move left king in check: from={} to={}",
                 m.from(),
                 m.to()
@@ -914,12 +759,16 @@ mod tests {
     #[test]
     fn legal_moves_pinned_piece_cannot_expose_king() {
         let mut pos = empty(Color::White);
-        place(&mut pos, Color::White, PieceType::King, sq(4, 0)); // e1
-        place(&mut pos, Color::White, PieceType::Rook, sq(4, 3)); // e4 — pinned on e-file
-        place(&mut pos, Color::Black, PieceType::King, sq(0, 7)); // a8
-        place(&mut pos, Color::Black, PieceType::Rook, sq(4, 7)); // e8 pins e4 rook
-        let legal = MoveGen::generate_legal_moves(pos, &magic());
-        let pinned_moves: Vec<_> = legal.iter().filter(|m| m.from() == sq(4, 3)).collect();
+        place(&mut pos, Color::White, PieceType::King, sq(4, 0));
+        place(&mut pos, Color::White, PieceType::Rook, sq(4, 3));
+        place(&mut pos, Color::Black, PieceType::King, sq(0, 7));
+        place(&mut pos, Color::Black, PieceType::Rook, sq(4, 7));
+        let legal_list = legal_moves(&mut pos);
+        let pinned_moves: Vec<_> = legal_list
+            .as_slice()
+            .iter()
+            .filter(|m| m.from() == sq(4, 3))
+            .collect();
         for m in &pinned_moves {
             assert_eq!(m.to() % 8, 4, "pinned rook must stay on e-file");
         }
@@ -928,21 +777,21 @@ mod tests {
     #[test]
     fn legal_moves_checkmate_returns_empty() {
         let mut pos = empty(Color::White);
-        place(&mut pos, Color::White, PieceType::King, sq(0, 0)); // a1
-        place(&mut pos, Color::Black, PieceType::King, sq(5, 5)); // f6
-        place(&mut pos, Color::Black, PieceType::Rook, sq(0, 7)); // a8 — checks a1 via a-file
-        place(&mut pos, Color::Black, PieceType::Rook, sq(1, 7)); // b8 — covers b-file
-        let legal = MoveGen::generate_legal_moves(pos, &magic());
-        assert_eq!(legal.len(), 0, "back-rank mate should have 0 legal moves");
+        place(&mut pos, Color::White, PieceType::King, sq(0, 0));
+        place(&mut pos, Color::Black, PieceType::King, sq(5, 5));
+        place(&mut pos, Color::Black, PieceType::Rook, sq(0, 7));
+        place(&mut pos, Color::Black, PieceType::Rook, sq(1, 7));
+        let legal_list = legal_moves(&mut pos);
+        assert_eq!(legal_list.as_slice().len(), 0, "back-rank mate should have 0 legal moves");
     }
 
     #[test]
     fn legal_moves_stalemate_returns_empty() {
         let mut pos = empty(Color::White);
-        place(&mut pos, Color::White, PieceType::King, sq(0, 7)); // a8
-        place(&mut pos, Color::Black, PieceType::King, sq(2, 6)); // c7
-        place(&mut pos, Color::Black, PieceType::Queen, sq(1, 5)); // b6
-        let legal = MoveGen::generate_legal_moves(pos, &magic());
-        assert_eq!(legal.len(), 0, "stalemate should have 0 legal moves");
+        place(&mut pos, Color::White, PieceType::King, sq(0, 7));
+        place(&mut pos, Color::Black, PieceType::King, sq(2, 6));
+        place(&mut pos, Color::Black, PieceType::Queen, sq(1, 5));
+        let legal_list = legal_moves(&mut pos);
+        assert_eq!(legal_list.as_slice().len(), 0, "stalemate should have 0 legal moves");
     }
 }

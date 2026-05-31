@@ -579,12 +579,20 @@ impl Position {
         self.occ_by = undo.occ_by;
     }
 
-    pub fn all_moves(&mut self, table: &MagicTable, list: &mut MoveList) {
+    pub fn all_legal_moves(&mut self, table: &MagicTable, list: &mut MoveList) {
         MoveGen::generate_legal_moves(self, table, list)
     }
 
-    pub fn all_captures(&mut self, table: &MagicTable, list: &mut MoveList) {
+    pub fn all_legal_captures(&mut self, table: &MagicTable, list: &mut MoveList) {
         MoveGen::generate_legal_captures(self, table, list)
+    }
+
+    pub fn all_moves(&mut self, table: &MagicTable, list: &mut MoveList) {
+        MoveGen::generate_moves(self, table, list)
+    }
+
+    pub fn all_captures(&mut self, table: &MagicTable, list: &mut MoveList) {
+        MoveGen::generate_captures(self, table, list)
     }
 
     pub fn king_under_attack(&self, table: &MagicTable) -> bool {
