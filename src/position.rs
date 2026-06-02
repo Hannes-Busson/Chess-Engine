@@ -2,6 +2,47 @@ use crate::bitboard::Bitboard;
 use crate::movegen::{MagicTable, Move, MoveFlags, MoveGen, MoveList};
 use crate::zobrist;
 
+pub const PIECE_VALUES: [i32; 6] = [100, 320, 330, 500, 900, 0];
+pub const PST_BONUS: [[i32; 64]; 7] = [
+    [
+        0, 0, 0, 0, 0, 0, 0, 0, 50, 50, 50, 50, 50, 50, 50, 50, 10, 10, 20, 30, 30, 20, 10, 10, 5,
+        5, 10, 25, 25, 10, 5, 5, 0, 0, 0, 20, 20, 0, 0, 0, 5, -5, -10, 0, 0, -10, -5, 5, 5, 10, 10,
+        -20, -20, 10, 10, 5, 0, 0, 0, 0, 0, 0, 0, 0,
+    ],
+    [
+        -50, -40, -30, -30, -30, -30, -40, -50, -40, -20, 0, 0, 0, 0, -20, -40, -30, 0, 10, 15, 15,
+        10, 0, -30, -30, 5, 15, 20, 20, 15, 5, -30, -30, 0, 15, 20, 20, 15, 0, -30, -30, 5, 10, 15,
+        15, 10, 5, -30, -40, -20, 0, 5, 5, 0, -20, -40, -50, -40, -30, -30, -30, -30, -40, -50,
+    ],
+    [
+        -20, -10, -10, -10, -10, -10, -10, -20, -10, 0, 0, 0, 0, 0, 0, -10, -10, 0, 5, 10, 10, 5,
+        0, -10, -10, 5, 5, 10, 10, 5, 5, -10, -10, 0, 10, 10, 10, 10, 0, -10, -10, 10, 10, 10, 10,
+        10, 10, -10, -10, 5, 0, 0, 0, 0, 5, -10, -20, -10, -10, -10, -10, -10, -10, -20,
+    ],
+    [
+        0, 0, 0, 0, 0, 0, 0, 0, 5, 10, 10, 10, 10, 10, 10, 5, -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0,
+        0, 0, 0, 0, -5, -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0, 0, 0, 0, 0,
+        -5, 0, 0, 0, 5, 5, 0, 0, 0,
+    ],
+    [
+        -20, -10, -10, -5, -5, -10, -10, -20, -10, 0, 0, 0, 0, 0, 0, -10, -10, 0, 5, 5, 5, 5, 0,
+        -10, -5, 0, 5, 5, 5, 5, 0, -5, 0, 0, 5, 5, 5, 5, 0, -5, -10, 5, 5, 5, 5, 5, 0, -10, -10, 0,
+        5, 0, 0, 0, 0, -10, -20, -10, -10, -5, -5, -10, -10, -20,
+    ],
+    [
+        -30, -40, -40, -50, -50, -40, -40, -30, -30, -40, -40, -50, -50, -40, -40, -30, -30, -40,
+        -40, -50, -50, -40, -40, -30, -30, -40, -40, -50, -50, -40, -40, -30, -20, -30, -30, -40,
+        -40, -30, -30, -20, -10, -20, -20, -20, -20, -20, -20, -10, 20, 20, 0, 0, 0, 0, 20, 20, 20,
+        30, 10, 0, 0, 10, 30, 20,
+    ],
+    [
+        -50, -40, -30, -20, -20, -30, -40, -50, -30, -20, -10, 0, 0, -10, -20, -30, -30, -10, 20,
+        30, 30, 20, -10, -30, -30, -10, 30, 40, 40, 30, -10, -30, -30, -10, 30, 40, 40, 30, -10,
+        -30, -30, -10, 20, 30, 30, 20, -10, -30, -30, -30, 0, 0, 0, 0, -30, -30, -50, -30, -30,
+        -30, -30, -30, -30, -50,
+    ],
+];
+
 pub struct UndoInfo {
     pub moving_piece: u8,
     pub captured: u8,
@@ -11,6 +52,7 @@ pub struct UndoInfo {
     pub hash: u64,
     pub occ: Bitboard,
     pub occ_by: [Bitboard; 2],
+    pub pst_score: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +105,7 @@ pub struct Position {
     pub hash: u64,
     pub occ: Bitboard,
     pub occ_by: [Bitboard; 2],
+    pub pst_score: i32,
 }
 
 impl Position {
@@ -113,6 +156,23 @@ impl Position {
         }
         let occ_by = [occ_white, occ & !occ_white];
 
+        let mut white_material = 0i32;
+        let mut black_material = 0i32;
+        for i in 0..6 {
+            let mut bb = pieces[i];
+            white_material += bb.0.count_ones() as i32 * PIECE_VALUES[i];
+            while bb.0 != 0 {
+                white_material += PST_BONUS[i][(bb.pop_lsb() as usize) ^ 56];
+            }
+        }
+        for i in 0..6 {
+            let mut bb = pieces[i + 6];
+            black_material += bb.0.count_ones() as i32 * PIECE_VALUES[i];
+            while bb.0 != 0 {
+                black_material += PST_BONUS[i][bb.pop_lsb() as usize];
+            }
+        }
+
         Position {
             pieces,
             piece_on,
@@ -122,6 +182,7 @@ impl Position {
             hash,
             occ,
             occ_by,
+            pst_score: white_material - black_material,
         }
     }
 
@@ -254,6 +315,23 @@ impl Position {
         }
         let occ_by = [occ_white, occ & !occ_white];
 
+        let mut white_material = 0i32;
+        let mut black_material = 0i32;
+        for i in 0..6 {
+            let mut bb = pieces[i];
+            white_material += bb.0.count_ones() as i32 * PIECE_VALUES[i];
+            while bb.0 != 0 {
+                white_material += PST_BONUS[i][(bb.pop_lsb() as usize) ^ 56];
+            }
+        }
+        for i in 0..6 {
+            let mut bb = pieces[i + 6];
+            black_material += bb.0.count_ones() as i32 * PIECE_VALUES[i];
+            while bb.0 != 0 {
+                black_material += PST_BONUS[i][bb.pop_lsb() as usize];
+            }
+        }
+
         Position {
             pieces: pieces,
             piece_on: piece_on,
@@ -263,6 +341,7 @@ impl Position {
             hash: hash,
             occ: occ,
             occ_by: occ_by,
+            pst_score: white_material - black_material,
         }
     }
 
@@ -341,6 +420,7 @@ impl Position {
             hash: self.hash,
             occ: self.occ,
             occ_by: self.occ_by,
+            pst_score: self.pst_score,
         };
 
         self.en_passant = 64;
@@ -357,6 +437,8 @@ impl Position {
                 self.piece_on[to as usize] = piece_idx as u8;
                 self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
                 self.hash ^= zobrist::keys()[piece_idx * 64 + to as usize];
+                self.pst_score += Position::pst_contribution(piece_idx, to)
+                    - Position::pst_contribution(piece_idx, from);
             }
             MoveFlags::CAPTURE => {
                 self.pieces[piece_idx].clear_bit(from);
@@ -367,6 +449,9 @@ impl Position {
                 self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
                 self.hash ^= zobrist::keys()[piece_idx * 64 + to as usize];
                 self.hash ^= zobrist::keys()[opponent_idx * 64 + to as usize];
+                self.pst_score += Position::pst_contribution(piece_idx, to)
+                    - Position::pst_contribution(piece_idx, from)
+                    - Position::pst_contribution(opponent_idx, to);
             }
             MoveFlags::KNIGHT_PROMOTION => {
                 self.pieces[piece_idx].clear_bit(from);
@@ -375,6 +460,8 @@ impl Position {
                 self.piece_on[to as usize] = (color as u8) * 6 + 1;
                 self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
                 self.hash ^= zobrist::keys()[((color as usize) * 6 + 1) * 64 + to as usize];
+                self.pst_score += Position::pst_contribution(color as usize * 6 + 1, to)
+                    - Position::pst_contribution(piece_idx, from);
             }
             MoveFlags::BISHOP_PROMOTION => {
                 self.pieces[piece_idx].clear_bit(from);
@@ -383,6 +470,8 @@ impl Position {
                 self.piece_on[to as usize] = (color as u8) * 6 + 2;
                 self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
                 self.hash ^= zobrist::keys()[((color as usize) * 6 + 2) * 64 + to as usize];
+                self.pst_score += Position::pst_contribution(color as usize * 6 + 2, to)
+                    - Position::pst_contribution(piece_idx, from);
             }
             MoveFlags::ROOK_PROMOTION => {
                 self.pieces[piece_idx].clear_bit(from);
@@ -391,6 +480,8 @@ impl Position {
                 self.piece_on[to as usize] = (color as u8) * 6 + 3;
                 self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
                 self.hash ^= zobrist::keys()[((color as usize) * 6 + 3) * 64 + to as usize];
+                self.pst_score += Position::pst_contribution(color as usize * 6 + 3, to)
+                    - Position::pst_contribution(piece_idx, from);
             }
             MoveFlags::QUEEN_PROMOTION => {
                 self.pieces[piece_idx].clear_bit(from);
@@ -399,6 +490,8 @@ impl Position {
                 self.piece_on[to as usize] = (color as u8) * 6 + 4;
                 self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
                 self.hash ^= zobrist::keys()[((color as usize) * 6 + 4) * 64 + to as usize];
+                self.pst_score += Position::pst_contribution(color as usize * 6 + 4, to)
+                    - Position::pst_contribution(piece_idx, from);
             }
             MoveFlags::KNIGHT_PROMOTION_CAPTURE => {
                 self.pieces[piece_idx].clear_bit(from);
@@ -409,6 +502,9 @@ impl Position {
                 self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
                 self.hash ^= zobrist::keys()[((color as usize) * 6 + 1) * 64 + to as usize];
                 self.hash ^= zobrist::keys()[opponent_idx * 64 + to as usize];
+                self.pst_score += Position::pst_contribution(color as usize * 6 + 1, to)
+                    - Position::pst_contribution(piece_idx, from)
+                    - Position::pst_contribution(opponent_idx, to);
             }
             MoveFlags::BISHOP_PROMOTION_CAPTURE => {
                 self.pieces[piece_idx].clear_bit(from);
@@ -419,6 +515,9 @@ impl Position {
                 self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
                 self.hash ^= zobrist::keys()[((color as usize) * 6 + 2) * 64 + to as usize];
                 self.hash ^= zobrist::keys()[opponent_idx * 64 + to as usize];
+                self.pst_score += Position::pst_contribution(color as usize * 6 + 2, to)
+                    - Position::pst_contribution(piece_idx, from)
+                    - Position::pst_contribution(opponent_idx, to);
             }
             MoveFlags::ROOK_PROMOTION_CAPTURE => {
                 self.pieces[piece_idx].clear_bit(from);
@@ -429,6 +528,9 @@ impl Position {
                 self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
                 self.hash ^= zobrist::keys()[((color as usize) * 6 + 3) * 64 + to as usize];
                 self.hash ^= zobrist::keys()[opponent_idx * 64 + to as usize];
+                self.pst_score += Position::pst_contribution(color as usize * 6 + 3, to)
+                    - Position::pst_contribution(piece_idx, from)
+                    - Position::pst_contribution(opponent_idx, to);
             }
             MoveFlags::QUEEN_PROMOTION_CAPTURE => {
                 self.pieces[piece_idx].clear_bit(from);
@@ -439,6 +541,9 @@ impl Position {
                 self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
                 self.hash ^= zobrist::keys()[((color as usize) * 6 + 4) * 64 + to as usize];
                 self.hash ^= zobrist::keys()[opponent_idx * 64 + to as usize];
+                self.pst_score += Position::pst_contribution(color as usize * 6 + 4, to)
+                    - Position::pst_contribution(piece_idx, from)
+                    - Position::pst_contribution(opponent_idx, to);
             }
             MoveFlags::KINGSIDE_CASTLE => {
                 self.pieces[(color as usize * 6) + 5].clear_bit((color as u8) * 56 + 4);
@@ -457,6 +562,11 @@ impl Position {
                     [((color as usize) * 6 + 3) * 64 + ((color as u8) * 56 + 7) as usize];
                 self.hash ^= zobrist::keys()
                     [((color as usize) * 6 + 3) * 64 + ((color as u8) * 56 + 5) as usize];
+                self.pst_score +=
+                    Position::pst_contribution(color as usize * 6 + 5, color as u8 * 56 + 6)
+                        + Position::pst_contribution(color as usize * 6 + 3, color as u8 * 56 + 5)
+                        - Position::pst_contribution(color as usize * 6 + 5, color as u8 * 56 + 4)
+                        - Position::pst_contribution(color as usize * 6 + 3, color as u8 * 56 + 7);
             }
             MoveFlags::QUEENSIDE_CASTLE => {
                 self.pieces[(color as usize * 6) + 5].clear_bit((color as u8) * 56 + 4);
@@ -475,6 +585,11 @@ impl Position {
                     [((color as usize) * 6 + 3) * 64 + ((color as u8) * 56 + 0) as usize];
                 self.hash ^= zobrist::keys()
                     [((color as usize) * 6 + 3) * 64 + ((color as u8) * 56 + 3) as usize];
+                self.pst_score +=
+                    Position::pst_contribution(color as usize * 6 + 5, color as u8 * 56 + 2)
+                        + Position::pst_contribution(color as usize * 6 + 3, color as u8 * 56 + 3)
+                        - Position::pst_contribution(color as usize * 6 + 5, color as u8 * 56 + 4)
+                        - Position::pst_contribution(color as usize * 6 + 3, color as u8 * 56 + 0);
             }
             MoveFlags::EN_PASSANT => {
                 self.pieces[(color as usize) * 6 + 0].clear_bit(from);
@@ -487,6 +602,9 @@ impl Position {
                 self.hash ^= zobrist::keys()[piece_idx * 64 + to as usize];
                 self.hash ^= zobrist::keys()
                     [(1 - color as usize) * 6 * 64 + (to as usize + (color as usize) * 16 - 8)];
+                self.pst_score += Position::pst_contribution(piece_idx, to)
+                    - Position::pst_contribution(piece_idx, from)
+                    - Position::pst_contribution((1 - color as usize) * 6, ep_captured_sq);
             }
             MoveFlags::DOUBLE_PAWN_PUSH => {
                 self.pieces[piece_idx].clear_bit(from);
@@ -496,6 +614,8 @@ impl Position {
                 self.piece_on[to as usize] = piece_idx as u8;
                 self.hash ^= zobrist::keys()[piece_idx * 64 + from as usize];
                 self.hash ^= zobrist::keys()[piece_idx * 64 + to as usize];
+                self.pst_score += Position::pst_contribution(piece_idx, to)
+                    - Position::pst_contribution(piece_idx, from);
             }
             6_u8..=7_u8 | 16_u8..=u8::MAX => {}
         }
@@ -550,6 +670,7 @@ impl Position {
         self.en_passant = undo.en_passant;
         self.castling = undo.castling;
         self.hash = undo.hash;
+        self.pst_score = undo.pst_score;
         let color = self.side_to_move;
         let from = mv.from();
         let to = mv.to();
@@ -604,5 +725,15 @@ impl Position {
             &self,
             table,
         )
+    }
+
+    pub fn pst_contribution(piece_idx: usize, sq: u8) -> i32 {
+        let pt = piece_idx % 6;
+        let color = piece_idx / 6;
+        if color == 0 {
+            return PIECE_VALUES[pt] + PST_BONUS[pt][(sq as usize) ^ 56];
+        } else {
+            return -(PIECE_VALUES[pt] + PST_BONUS[pt][sq as usize]);
+        }
     }
 }

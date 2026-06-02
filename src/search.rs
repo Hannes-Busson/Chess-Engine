@@ -5,11 +5,12 @@ use crate::{
     tt::{self, TransponationTable},
     zobrist,
 };
-use core::time;
 use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::Instant,
 };
+
+// Stat variables
 
 static NEGAMAX_CALLS: AtomicU64 = AtomicU64::new(0);
 static TT_HITS: AtomicU64 = AtomicU64::new(0);
@@ -18,6 +19,10 @@ static BETA_CUTOFFS: AtomicU64 = AtomicU64::new(0);
 static NULL_MOVE_CUTOFFS: AtomicU64 = AtomicU64::new(0);
 static QUIESCENCE_CALLS: AtomicU64 = AtomicU64::new(0);
 static STORE_CALLS: AtomicU64 = AtomicU64::new(0);
+
+pub const PIECE_VALUES: [i32; 6] = [100, 320, 330, 500, 900, 0];
+
+// search algorithm - brute force
 
 pub fn negamax(
     position: &mut Position,
@@ -31,17 +36,20 @@ pub fn negamax(
     history: &mut [[i32; 64]; 64],
 ) -> i32 {
     NEGAMAX_CALLS.fetch_add(1, Ordering::Relaxed);
+    // leaf check via quiescence: checks for captures on depth 0
     if depth == 0 {
         return quienscence(position, alpha, beta, table, 4, t_table);
     }
     if t_table.vault[position.hash as usize & tt::SHIFT].hash != position.hash {
         TT_COLLISIONS.fetch_add(1, Ordering::Relaxed);
     }
+    // checks for table entry
     if let Some(t) = t_table.lookup(position.hash, depth as u8, alpha, beta) {
         TT_HITS.fetch_add(1, Ordering::Relaxed);
         return t;
     }
     let in_check = position.king_under_attack(table);
+    // null move: checks if a position is so good that in case of passing moves still keep the lead
     if depth > 2 && !in_check {
         let saved_side = position.side_to_move;
         let saved_ep = position.en_passant;
@@ -73,6 +81,7 @@ pub fn negamax(
             return beta;
         }
     }
+    // collect moves and sort them with move_score
     let mut legal_moves = MoveList::new();
     position.all_moves(table, &mut legal_moves);
     let tt_move = t_table.get_best_move(position.hash).unwrap_or(0);
@@ -83,6 +92,7 @@ pub fn negamax(
     let mut best_move = 0;
     let mut move_index = 0;
     let mut legal_move_count = 0;
+    // run loop for sorted moves with make/unmake move logic for checking if move legal
     for mv in legal_moves.as_slice() {
         let undo = position.make_move(*mv);
         if MoveGen::is_attacked(
@@ -138,16 +148,19 @@ pub fn negamax(
             );
         }
         position.unmake_move(*mv, undo);
+        // updates alpha if checked move is better
         if score > alpha {
             alpha = score;
             best_move = mv.value;
         }
+        // Beta cutoff when move is too good that the oppenent allow it
         if alpha >= beta {
             BETA_CUTOFFS.fetch_add(1, Ordering::Relaxed);
             break;
         }
         move_index += 1;
     }
+    // check for checkmate and draw if no move found
     if legal_move_count == 0 {
         STORE_CALLS.fetch_add(1, Ordering::Relaxed);
         if position.king_under_attack(table) {
@@ -183,6 +196,8 @@ pub fn negamax(
     alpha
 }
 
+// best_move kickoff for search with negamax calls
+
 pub fn best_move(
     position: &mut Position,
     depth: u32,
@@ -197,7 +212,14 @@ pub fn best_move(
     position.all_moves(table, &mut legal_moves);
     let mut killers = [[0u16; 2]; 64];
     let mut history = [[0i32; 64]; 64];
+    let mut prev_score = 0;
+    // search for every depth ascending
     for d in 1..depth + 1 {
+        let (mut alpha, mut beta) = if d == 1 {
+            (-1000000, 1000000)
+        } else {
+            (prev_score - 50, prev_score + 50)
+        };
         for i in 0..64 {
             for j in 0..64 {
                 history[i][j] /= 2;
@@ -207,65 +229,82 @@ pub fn best_move(
         legal_moves
             .as_mut_slice()
             .sort_by_key(|mv| -move_score(&position, mv, tt_move, &killers, 0, &history));
-        let mut partial_result = None;
+        let mut partial_result_mv = None;
         let mut highest_score = -1000000i32;
         let mut legal_move_count = 0;
-        for mv in legal_moves.as_slice() {
-            let undo = position.make_move(*mv);
-            if MoveGen::is_attacked(
-                position.opponent(),
-                position.pieces[position.opponent() as usize * 6 + 5]
-                    .0
-                    .trailing_zeros() as u8,
-                &position,
-                table,
-            ) {
+        // loop for aspiration window first small if fails big
+        loop {
+            let original_alpha = alpha;
+            for mv in legal_moves.as_slice() {
+                let undo = position.make_move(*mv);
+                if MoveGen::is_attacked(
+                    position.opponent(),
+                    position.pieces[position.opponent() as usize * 6 + 5]
+                        .0
+                        .trailing_zeros() as u8,
+                    &position,
+                    table,
+                ) {
+                    position.unmake_move(*mv, undo);
+                    continue;
+                } else {
+                    legal_move_count += 1;
+                }
+                let score = -negamax(
+                    position,
+                    d - 1,
+                    0,
+                    -beta,
+                    -alpha,
+                    table,
+                    t_table,
+                    &mut killers,
+                    &mut history,
+                );
+
                 position.unmake_move(*mv, undo);
+
+                if score > highest_score {
+                    alpha = alpha.max(score);
+                    highest_score = score;
+                    partial_result_mv = Some(*mv);
+                }
+                if start.elapsed().as_millis() as u64 >= time_limit_ms {
+                    time_up = true;
+                    break;
+                }
+            }
+            // check for rerun or continue
+            if highest_score <= original_alpha || highest_score >= beta {
+                alpha = -1000000;
+                beta = 1000000;
+                highest_score = -1000000;
+                partial_result_mv = None;
                 continue;
             } else {
-                legal_move_count += 1;
-            }
-            let score = -negamax(
-                position,
-                d - 1,
-                0,
-                -1000000i32,
-                -highest_score,
-                table,
-                t_table,
-                &mut killers,
-                &mut history,
-            );
-
-            position.unmake_move(*mv, undo);
-
-            if score > highest_score {
-                highest_score = score;
-                partial_result = Some(*mv);
-            }
-            if start.elapsed().as_millis() as u64 >= time_limit_ms {
-                time_up = true;
+                prev_score = highest_score;
                 break;
             }
+        }
+        if let Some(mv) = partial_result_mv {
+            STORE_CALLS.fetch_add(1, Ordering::Relaxed);
+            t_table.store(position.hash, highest_score, d as u8, 0, mv.value);
         }
         if time_up {
             break;
         }
-        if let Some(mv) = partial_result {
-            STORE_CALLS.fetch_add(1, Ordering::Relaxed);
-            t_table.store(position.hash, highest_score, d as u8, 0, mv.value);
-        }
-        result = partial_result;
-        // let nodes = NEGAMAX_CALLS.load(Ordering::Relaxed);
-        // let elapsed_time = start.elapsed().as_millis().max(1) as u64;
-        // println!(
-        //     "info depth {} score cp {} nodes {} time {} nps {}",
-        //     d,
-        //     highest_score,
-        //     nodes,
-        //     elapsed_time,
-        //     nodes * 1000 / elapsed_time
-        // )
+        // info print for cutechess
+        let nodes = NEGAMAX_CALLS.load(Ordering::Relaxed);
+        let elapsed_time = start.elapsed().as_millis().max(1) as u64;
+        println!(
+            "info depth {} score cp {} nodes {} time {} nps {}",
+            d,
+            highest_score,
+            nodes,
+            elapsed_time,
+            nodes * 1000 / elapsed_time
+        );
+        result = partial_result_mv;
     }
     // eprintln!("{}", NEGAMAX_CALLS.load(Ordering::Relaxed));
     // eprintln!("{}", TT_HITS.load(Ordering::Relaxed));
@@ -274,11 +313,11 @@ pub fn best_move(
     // eprintln!("{}", NULL_MOVE_CUTOFFS.load(Ordering::Relaxed));
     // eprintln!("{}", QUIESCENCE_CALLS.load(Ordering::Relaxed));
     // eprintln!("{}", STORE_CALLS.load(Ordering::Relaxed));
-    t_table.stats();
+    // t_table.stats();
     result
 }
 
-pub const PIECE_VALUES: [i32; 6] = [100, 320, 330, 500, 900, 0];
+// move_score for ordering move evaluation for improving beta cutoffs
 
 pub fn move_score(
     position: &Position,
@@ -288,9 +327,11 @@ pub fn move_score(
     ply: u32,
     history: &[[i32; 64]; 64],
 ) -> i32 {
+    // check for best move in table
     if mv.value == tt_move {
         return 20000;
     }
+    // check for killer moves
     if mv.value == killers[ply as usize][0] || mv.value == killers[ply as usize][1] {
         return 9000;
     }
@@ -298,6 +339,7 @@ pub fn move_score(
     let from = mv.from();
     let to = mv.to();
     let piece_on_to = position.piece_on[to as usize] % 6;
+    // general move ordering
     match mv.flags() {
         MoveFlags::CAPTURE => {
             base + PIECE_VALUES[(piece_on_to) as usize]
@@ -324,6 +366,8 @@ pub fn move_score(
     }
 }
 
+// quiescence: check for captures on depth 0 to not miss important captures
+
 pub fn quienscence(
     position: &mut Position,
     mut alpha: i32,
@@ -333,16 +377,17 @@ pub fn quienscence(
     t_table: &mut TransponationTable,
 ) -> i32 {
     QUIESCENCE_CALLS.fetch_add(1, Ordering::Relaxed);
+    // check table
+    if let Some(t) = t_table.lookup(position.hash, 0, alpha, beta) {
+        TT_HITS.fetch_add(1, Ordering::Relaxed);
+        return t;
+    }
     let stand_pat = evaluate_for_white(&position)
         * if position.side_to_move == Color::White {
             1
         } else {
             -1
         };
-    if let Some(t) = t_table.lookup(position.hash, 0, alpha, beta) {
-        TT_HITS.fetch_add(1, Ordering::Relaxed);
-        return t;
-    }
     let original_alpha = alpha;
     if qdepth <= 0 {
         STORE_CALLS.fetch_add(1, Ordering::Relaxed);
@@ -359,6 +404,7 @@ pub fn quienscence(
     }
     let mut captures = MoveList::new();
     position.all_captures(table, &mut captures);
+    // check all captures until no more captures
     for mv in captures.as_slice() {
         let undo = position.make_move(*mv);
 

@@ -14,6 +14,7 @@ mod tests {
             hash: 0u64,
             occ: Bitboard(0),
             occ_by: [Bitboard(0); 2],
+            pst_score: 0,
         }
     }
 
