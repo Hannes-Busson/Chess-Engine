@@ -2,11 +2,14 @@ use crate::{
     eval::evaluate_for_white,
     movegen::{MagicTable, Move, MoveFlags, MoveGen, MoveList},
     position::{Color, Position},
-    tt::{self, TransponationTable},
+    tt::{self, TranspositionTable},
     zobrist,
 };
 use std::{
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
     time::Instant,
 };
 
@@ -31,7 +34,7 @@ pub fn negamax(
     mut alpha: i32,
     beta: i32,
     table: &MagicTable,
-    t_table: &mut TransponationTable,
+    t_table: &TranspositionTable,
     killers: &mut [[u16; 2]; 64],
     history: &mut [[i32; 64]; 64],
 ) -> i32 {
@@ -40,7 +43,7 @@ pub fn negamax(
     if depth == 0 {
         return quienscence(position, alpha, beta, table, 4, t_table);
     }
-    if t_table.vault[position.hash as usize & tt::SHIFT].hash != position.hash {
+    if unsafe { *t_table.vault[position.hash as usize & tt::SHIFT].get() }.hash != position.hash {
         TT_COLLISIONS.fetch_add(1, Ordering::Relaxed);
     }
     // checks for table entry
@@ -202,8 +205,9 @@ pub fn best_move(
     position: &mut Position,
     depth: u32,
     table: &MagicTable,
-    t_table: &mut TransponationTable,
+    t_table: &TranspositionTable,
     time_limit_ms: u64,
+    stop: &Arc<AtomicBool>,
 ) -> Option<Move> {
     let start = Instant::now();
     let mut time_up = false;
@@ -269,7 +273,9 @@ pub fn best_move(
                     highest_score = score;
                     partial_result_mv = Some(*mv);
                 }
-                if start.elapsed().as_millis() as u64 >= time_limit_ms {
+                if start.elapsed().as_millis() as u64 >= time_limit_ms
+                    || stop.load(Ordering::Relaxed)
+                {
                     time_up = true;
                     break;
                 }
@@ -374,7 +380,7 @@ pub fn quienscence(
     beta: i32,
     table: &MagicTable,
     qdepth: i32,
-    t_table: &mut TransponationTable,
+    t_table: &TranspositionTable,
 ) -> i32 {
     QUIESCENCE_CALLS.fetch_add(1, Ordering::Relaxed);
     // check table

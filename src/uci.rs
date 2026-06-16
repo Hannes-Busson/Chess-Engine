@@ -1,3 +1,7 @@
+use core::num;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::JoinHandle;
 use std::{ops::Add, time::Instant, u64};
 
 use crate::{
@@ -5,14 +9,15 @@ use crate::{
     movegen::{MagicTable, Move, MoveList},
     position::{Color, Position},
     search::{self, best_move, get_nodes},
-    tt::TransponationTable,
+    tt::TranspositionTable,
 };
 
 pub fn run() {
-    let table = MagicTable::init();
+    let num_threads = 5 as usize;
+    let table = Arc::new(MagicTable::init());
     let mut game = Position::start();
     let mut line = String::new();
-    let mut t_table = TransponationTable::new();
+    let mut t_table = Arc::new(TranspositionTable::new());
 
     loop {
         line.clear();
@@ -30,7 +35,7 @@ pub fn run() {
             "isready" => println!("readyok"),
             "ucinewgame" => {
                 game = Position::start();
-                t_table = TransponationTable::new();
+                t_table = Arc::new(TranspositionTable::new());
             }
             "quit" => break,
             "position" => match tokens[1] {
@@ -55,57 +60,61 @@ pub fn run() {
                 }
                 _ => println!("Command unknown"),
             },
-            "go" => match tokens[1] {
-                "depth" => {
-                    let depth: u32 = tokens[2].parse().unwrap();
-                    let best_mv = best_move(&mut game, depth, &table, &mut t_table, u64::MAX);
-                    if let Some(mv) = best_mv {
-                        println!("bestmove {}", mv_to_string(mv));
-                    }
-                }
-                "wtime" => match game.side_to_move {
-                    Color::White => {
-                        let mut time_limit_ms = tokens[2].parse::<u64>().unwrap();
-                        if time_limit_ms < 10000 {
-                            time_limit_ms /= 10;
-                        } else {
-                            time_limit_ms /= 30;
-                            if let Some(t) = tokens.get(6) {
-                                let time_increment = t.parse::<u64>().unwrap();
-                                time_limit_ms += time_increment * 3 / 4;
-                            }
-                        }
+            "go" => {
+                let mut stop = Arc::new(AtomicBool::new(false));
+                match tokens[1] {
+                    "depth" => {
+                        let depth: u32 = tokens[2].parse().unwrap();
                         let best_mv =
-                            best_move(&mut game, 100, &table, &mut t_table, time_limit_ms);
+                            best_move(&mut game, depth, &table, &t_table, u64::MAX, &stop);
                         if let Some(mv) = best_mv {
                             println!("bestmove {}", mv_to_string(mv));
                         }
                     }
-                    Color::Black => {
-                        let mut time_limit_ms = tokens[4].parse::<u64>().unwrap();
-                        if time_limit_ms < 10000 {
-                            time_limit_ms /= 10;
-                        } else {
-                            time_limit_ms /= 30;
-                            if let Some(t) = tokens.get(8) {
-                                let time_increment = t.parse::<u64>().unwrap();
-                                time_limit_ms += time_increment * 3 / 4;
+                    "wtime" => match game.side_to_move {
+                        Color::White => {
+                            let mut time_limit_ms = tokens[2].parse::<u64>().unwrap();
+                            if time_limit_ms < 10000 {
+                                time_limit_ms /= 10;
+                            } else {
+                                time_limit_ms /= 30;
+                                if let Some(t) = tokens.get(6) {
+                                    let time_increment = t.parse::<u64>().unwrap();
+                                    time_limit_ms += time_increment * 3 / 4;
+                                }
+                            }
+                            let best_mv =
+                                best_move(&mut game, 100, &table, &t_table, time_limit_ms, &stop);
+                            if let Some(mv) = best_mv {
+                                println!("bestmove {}", mv_to_string(mv));
                             }
                         }
-                        let best_mv =
-                            best_move(&mut game, 100, &table, &mut t_table, time_limit_ms);
+                        Color::Black => {
+                            let mut time_limit_ms = tokens[4].parse::<u64>().unwrap();
+                            if time_limit_ms < 10000 {
+                                time_limit_ms /= 10;
+                            } else {
+                                time_limit_ms /= 30;
+                                if let Some(t) = tokens.get(8) {
+                                    let time_increment = t.parse::<u64>().unwrap();
+                                    time_limit_ms += time_increment * 3 / 4;
+                                }
+                            }
+                            let best_mv =
+                                best_move(&mut game, 100, &table, &t_table, time_limit_ms, &stop);
+                            if let Some(mv) = best_mv {
+                                println!("bestmove {}", mv_to_string(mv));
+                            }
+                        }
+                    },
+                    _ => {
+                        let best_mv = best_move(&mut game, 100, &table, &t_table, 5000, &stop);
                         if let Some(mv) = best_mv {
                             println!("bestmove {}", mv_to_string(mv));
                         }
                     }
-                },
-                _ => {
-                    let best_mv = best_move(&mut game, 100, &table, &mut t_table, 5000);
-                    if let Some(mv) = best_mv {
-                        println!("bestmove {}", mv_to_string(mv));
-                    }
                 }
-            },
+            }
             "bench" => {
                 search::reset_stats();
                 let bench_start = Instant::now();
@@ -123,8 +132,30 @@ pub fn run() {
                     "3r3r/1p4pp/2nb1k2/pP3p2/8/PB2PN2/p4PPP/R4RK1 b - - 0 1".to_string(),
                 ];
                 for p in positions {
+                    let mut stop = Arc::new(AtomicBool::new(false));
                     let mut pos = Position::from_fen(&p);
-                    let best_mv = best_move(&mut pos, 10, &table, &mut t_table, u64::MAX);
+                    let mut handler: Vec<JoinHandle<()>> = Vec::new();
+                    for i in 0..num_threads - 1 {
+                        let helper_table = Arc::clone(&table);
+                        let helper_t_table = Arc::clone(&t_table);
+                        let mut helper_position = pos.clone();
+                        let helper_stop = Arc::clone(&stop);
+                        handler.push(std::thread::spawn(move || {
+                            best_move(
+                                &mut helper_position,
+                                10,
+                                &helper_table,
+                                &helper_t_table,
+                                u64::MAX,
+                                &helper_stop,
+                            );
+                        }));
+                    }
+                    let best_mv = best_move(&mut pos, 10, &table, &t_table, u64::MAX, &stop);
+                    stop.store(true, Ordering::Relaxed);
+                    for h in handler {
+                        h.join().unwrap();
+                    }
                     if let Some(mv) = best_mv {
                         println!("bestmove {}", mv_to_string(mv));
                     }

@@ -1,3 +1,7 @@
+use std::cell::UnsafeCell;
+
+pub const TABLE_SIZE: i32 = 22;
+
 #[derive(Clone, Copy)]
 pub struct TTEntry {
     pub hash: u64,
@@ -7,42 +11,53 @@ pub struct TTEntry {
     pub best_move: u16,
 }
 
-pub struct TransponationTable {
-    pub vault: Vec<TTEntry>,
+impl TTEntry {
+    pub fn new() -> Self {
+        TTEntry {
+            hash: 0,
+            score: 0,
+            depth: 0,
+            flag: 0,
+            best_move: 0,
+        }
+    }
 }
 
-pub const SHIFT: usize = (1 << 22) - 1;
+pub struct TranspositionTable {
+    pub vault: Vec<UnsafeCell<TTEntry>>,
+}
 
-impl TransponationTable {
+unsafe impl Send for TranspositionTable {}
+
+unsafe impl Sync for TranspositionTable {}
+
+pub const SHIFT: usize = (1 << TABLE_SIZE) - 1;
+
+impl TranspositionTable {
     pub fn new() -> Self {
-        let vault = vec![
-            TTEntry {
-                hash: 0,
-                score: 0,
-                depth: 0,
-                flag: 0,
-                best_move: 0,
-            };
-            1 << 22
-        ];
-        TransponationTable { vault }
+        let vault = (0..1 << TABLE_SIZE)
+            .map(|_| UnsafeCell::new(TTEntry::new()))
+            .collect();
+        TranspositionTable { vault }
     }
 
-    pub fn store(&mut self, hash: u64, score: i32, depth: u8, flag: u8, best_move: u16) {
-        let existing = &self.vault[hash as usize & SHIFT];
+    pub fn store(&self, hash: u64, score: i32, depth: u8, flag: u8, best_move: u16) {
+        let existing = unsafe { *self.vault[hash as usize & SHIFT].get() };
         if existing.hash != hash || depth >= existing.depth {
-            self.vault[hash as usize & SHIFT] = TTEntry {
-                hash,
-                score,
-                depth,
-                flag,
-                best_move,
-            };
+            unsafe {
+                *self.vault[hash as usize & SHIFT].get() = TTEntry {
+                    hash,
+                    score,
+                    depth,
+                    flag,
+                    best_move,
+                };
+            }
         }
     }
 
     pub fn lookup(&self, hash: u64, depth: u8, alpha: i32, beta: i32) -> Option<i32> {
-        let entry = self.vault[hash as usize & SHIFT];
+        let entry = unsafe { *self.vault[hash as usize & SHIFT].get() };
         if entry.hash == hash && entry.depth >= depth {
             match entry.flag {
                 0 => Some(entry.score),
@@ -68,7 +83,7 @@ impl TransponationTable {
     }
 
     pub fn get_best_move(&self, hash: u64) -> Option<u16> {
-        let entry = self.vault[hash as usize & SHIFT];
+        let entry = unsafe { *self.vault[hash as usize & SHIFT].get() };
         if entry.hash == hash && entry.best_move != 0 {
             return Some(entry.best_move);
         }
@@ -76,12 +91,16 @@ impl TransponationTable {
     }
 
     pub fn stats(&self) {
-        let filled = self.vault.iter().filter(|entry| entry.hash != 0).count();
+        let filled = self
+            .vault
+            .iter()
+            .filter(|entry| unsafe { (*entry.get()).hash != 0 })
+            .count();
         eprintln!(
             "TT filled: {}/{} ({:.1}%)",
             filled,
-            1 << 22,
-            filled as f64 / (1 << 22) as f64 * 100.0
+            1 << TABLE_SIZE,
+            filled as f64 / (1 << TABLE_SIZE) as f64 * 100.0
         );
     }
 }
