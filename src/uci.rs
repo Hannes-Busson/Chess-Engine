@@ -1,6 +1,5 @@
-use core::num;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::{ops::Add, time::Instant, u64};
 
@@ -8,12 +7,12 @@ use crate::{
     file_to_number,
     movegen::{MagicTable, Move, MoveList},
     position::{Color, Position},
-    search::{self, best_move, get_nodes},
+    search::{self, best_move},
     tt::TranspositionTable,
 };
 
 pub fn run() {
-    let num_threads = 5 as usize;
+    let num_threads = 4 as usize;
     let table = Arc::new(MagicTable::init());
     let mut game = Position::start();
     let mut line = String::new();
@@ -66,7 +65,7 @@ pub fn run() {
                     "depth" => {
                         let depth: u32 = tokens[2].parse().unwrap();
                         let best_mv =
-                            best_move(&mut game, depth, &table, &t_table, u64::MAX, &stop);
+                            best_move(&mut game, depth, &table, &t_table, u64::MAX, &stop, None);
                         if let Some(mv) = best_mv {
                             println!("bestmove {}", mv_to_string(mv));
                         }
@@ -83,8 +82,14 @@ pub fn run() {
                                     time_limit_ms += time_increment * 3 / 4;
                                 }
                             }
-                            let best_mv =
-                                best_move(&mut game, 100, &table, &t_table, time_limit_ms, &stop);
+                            let best_mv = mult_best_move(
+                                num_threads,
+                                &table,
+                                &t_table,
+                                &mut game,
+                                100,
+                                time_limit_ms,
+                            );
                             if let Some(mv) = best_mv {
                                 println!("bestmove {}", mv_to_string(mv));
                             }
@@ -100,22 +105,29 @@ pub fn run() {
                                     time_limit_ms += time_increment * 3 / 4;
                                 }
                             }
-                            let best_mv =
-                                best_move(&mut game, 100, &table, &t_table, time_limit_ms, &stop);
+                            let best_mv = mult_best_move(
+                                num_threads,
+                                &table,
+                                &t_table,
+                                &mut game,
+                                100,
+                                time_limit_ms,
+                            );
                             if let Some(mv) = best_mv {
                                 println!("bestmove {}", mv_to_string(mv));
                             }
                         }
                     },
                     _ => {
-                        let best_mv = best_move(&mut game, 100, &table, &t_table, 5000, &stop);
+                        let best_mv =
+                            best_move(&mut game, 100, &table, &t_table, 5000, &stop, None);
                         if let Some(mv) = best_mv {
                             println!("bestmove {}", mv_to_string(mv));
                         }
                     }
                 }
             }
-            "bench" => {
+            "benchmt" => {
                 search::reset_stats();
                 let bench_start = Instant::now();
                 let positions = [
@@ -131,27 +143,38 @@ pub fn run() {
                         .to_string(),
                     "3r3r/1p4pp/2nb1k2/pP3p2/8/PB2PN2/p4PPP/R4RK1 b - - 0 1".to_string(),
                 ];
+                let shared_nodes = Arc::new(AtomicU64::new(0));
                 for p in positions {
                     let mut stop = Arc::new(AtomicBool::new(false));
                     let mut pos = Position::from_fen(&p);
                     let mut handler: Vec<JoinHandle<()>> = Vec::new();
                     for i in 0..num_threads - 1 {
+                        let helper_shared_nodes = Arc::clone(&shared_nodes);
                         let helper_table = Arc::clone(&table);
                         let helper_t_table = Arc::clone(&t_table);
                         let mut helper_position = pos.clone();
                         let helper_stop = Arc::clone(&stop);
                         handler.push(std::thread::spawn(move || {
-                            best_move(
+                            let best_mv = best_move(
                                 &mut helper_position,
                                 10,
                                 &helper_table,
                                 &helper_t_table,
                                 u64::MAX,
                                 &helper_stop,
+                                Some(&helper_shared_nodes),
                             );
                         }));
                     }
-                    let best_mv = best_move(&mut pos, 10, &table, &t_table, u64::MAX, &stop);
+                    let best_mv = best_move(
+                        &mut pos,
+                        10,
+                        &table,
+                        &t_table,
+                        u64::MAX,
+                        &stop,
+                        Some(&shared_nodes),
+                    );
                     stop.store(true, Ordering::Relaxed);
                     for h in handler {
                         h.join().unwrap();
@@ -160,7 +183,46 @@ pub fn run() {
                         println!("bestmove {}", mv_to_string(mv));
                     }
                 }
-                let nodes = get_nodes();
+                let nodes = shared_nodes.load(Ordering::Relaxed);
+                let nps = nodes * 1000 / bench_start.elapsed().as_millis().max(1) as u64;
+                println!("combined bench: {} nodes {} nps", nodes, nps);
+            }
+            "benchst" => {
+                search::reset_stats();
+                let bench_start = Instant::now();
+                let positions = [
+                    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_string(),
+                    "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"
+                        .to_string(),
+                    "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1".to_string(),
+                    "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1".to_string(),
+                    "r2q1rk1/ppp2ppp/2n1bn2/2b1p3/3pP3/3P1NPP/PPP1NPB1/R1BQ1RK1 b - - 0 9"
+                        .to_string(),
+                    "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8".to_string(),
+                    "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10"
+                        .to_string(),
+                    "3r3r/1p4pp/2nb1k2/pP3p2/8/PB2PN2/p4PPP/R4RK1 b - - 0 1".to_string(),
+                ];
+                let shared_nodes = Arc::new(AtomicU64::new(0));
+                for p in positions {
+                    t_table = Arc::new(TranspositionTable::new());
+                    let mut stop = Arc::new(AtomicBool::new(false));
+                    let mut pos = Position::from_fen(&p);
+                    let best_mv = best_move(
+                        &mut pos,
+                        10,
+                        &table,
+                        &t_table,
+                        u64::MAX,
+                        &stop,
+                        Some(&shared_nodes),
+                    );
+                    stop.store(true, Ordering::Relaxed);
+                    if let Some(mv) = best_mv {
+                        println!("bestmove {}", mv_to_string(mv));
+                    }
+                }
+                let nodes = shared_nodes.load(Ordering::Relaxed);
                 let nps = nodes * 1000 / bench_start.elapsed().as_millis().max(1) as u64;
                 println!("bench: {} nodes {} nps", nodes, nps);
             }
@@ -240,4 +302,39 @@ pub fn do_move_from_coordinates(game: &mut Position, token: &str, table: &MagicT
         println!("Invalid start square.");
     }
     *game
+}
+
+pub fn mult_best_move(
+    num_threads: usize,
+    table: &Arc<MagicTable>,
+    t_table: &Arc<TranspositionTable>,
+    game: &mut Position,
+    depth: u32,
+    time_limit_ms: u64,
+) -> Option<Move> {
+    let mut stop = Arc::new(AtomicBool::new(false));
+    let mut handler: Vec<JoinHandle<()>> = Vec::new();
+    for i in 0..num_threads - 1 {
+        let helper_table = Arc::clone(&table);
+        let helper_t_table = Arc::clone(&t_table);
+        let mut helper_position = game.clone();
+        let helper_stop = Arc::clone(&stop);
+        handler.push(std::thread::spawn(move || {
+            let best_mv = best_move(
+                &mut helper_position,
+                depth,
+                &helper_table,
+                &helper_t_table,
+                u64::MAX,
+                &helper_stop,
+                None,
+            );
+        }));
+    }
+    let best_mv = best_move(game, depth, &table, &t_table, time_limit_ms, &stop, None);
+    stop.store(true, Ordering::Relaxed);
+    for h in handler {
+        h.join().unwrap();
+    }
+    best_mv
 }
