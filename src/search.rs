@@ -2,8 +2,8 @@ use crate::{
     eval::evaluate_for_white,
     move_order::{move_score, update_killers_history},
     movegen::{MagicTable, Move, MoveFlags, MoveGen, MoveList},
-    position::{Color, Position},
-    pruning::null_move::try_null_move,
+    position::{Color, Position, UndoInfo},
+    pruning::{lmr::try_lmr, null_move::try_null_move},
     tt::TranspositionTable,
 };
 
@@ -61,6 +61,7 @@ pub fn negamax(
     let mut legal_move_count = 0;
     // run loop for sorted moves with make/unmake move logic for checking if move legal
     for mv in legal_moves.as_slice() {
+        // make move and check if king is in check
         let undo = position.make_move(*mv);
         if MoveGen::is_attacked(
             position.opponent(),
@@ -75,15 +76,18 @@ pub fn negamax(
         } else {
             legal_move_count += 1;
         }
-        let mut score;
-        if move_index >= 2 && depth >= 3 && !in_check && mv.flags() < MoveFlags::CAPTURE {
-            score = -negamax(position, depth - 2, ply + 1, -beta, -alpha, ctx);
-            if score > alpha {
-                score = -negamax(position, depth - 1, ply + 1, -beta, -alpha, ctx);
-            }
-        } else {
-            score = -negamax(position, depth - 1, ply + 1, -beta, -alpha, ctx);
-        }
+        // late move reduction logic
+        let score = try_lmr(
+            position,
+            depth,
+            ply,
+            alpha,
+            beta,
+            move_index,
+            in_check,
+            mv.flags(),
+            ctx,
+        );
         position.unmake_move(*mv, undo);
         // updates alpha if checked move is better
         if score > alpha {
