@@ -4,6 +4,7 @@ mod game;
 mod masks;
 mod movegen;
 mod position;
+mod pruning;
 mod search;
 #[cfg(test)]
 mod tests;

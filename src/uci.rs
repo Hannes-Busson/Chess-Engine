@@ -128,7 +128,6 @@ pub fn run() {
                 }
             }
             "benchmt" => {
-                search::reset_stats();
                 let bench_start = Instant::now();
                 let positions = [
                     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_string(),
@@ -188,7 +187,6 @@ pub fn run() {
                 println!("combined bench: {} nodes {} nps", nodes, nps);
             }
             "benchst" => {
-                search::reset_stats();
                 let bench_start = Instant::now();
                 let positions = [
                     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_string(),

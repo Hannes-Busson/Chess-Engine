@@ -1,3 +1,4 @@
+use crate::pruning::null_move::try_null_move;
 use crate::{
     eval::evaluate_for_white,
     movegen::{MagicTable, Move, MoveFlags, MoveGen, MoveList},
@@ -5,6 +6,7 @@ use crate::{
     tt::{self, TranspositionTable},
     zobrist,
 };
+
 use std::{
     sync::{
         Arc,
@@ -14,14 +16,6 @@ use std::{
 };
 
 // Stat variables
-
-static NEGAMAX_CALLS: AtomicU64 = AtomicU64::new(0);
-static TT_HITS: AtomicU64 = AtomicU64::new(0);
-static TT_COLLISIONS: AtomicU64 = AtomicU64::new(0);
-static BETA_CUTOFFS: AtomicU64 = AtomicU64::new(0);
-static NULL_MOVE_CUTOFFS: AtomicU64 = AtomicU64::new(0);
-static QUIESCENCE_CALLS: AtomicU64 = AtomicU64::new(0);
-static STORE_CALLS: AtomicU64 = AtomicU64::new(0);
 
 pub const PIECE_VALUES: [i32; 6] = [100, 320, 330, 500, 900, 0];
 
@@ -51,40 +45,14 @@ pub fn negamax(
     if depth == 0 {
         return quienscence(position, alpha, beta, 4, ctx);
     }
-    if unsafe { *ctx.t_table.vault[position.hash as usize & tt::SHIFT].get() }.hash != position.hash
-    {
-        TT_COLLISIONS.fetch_add(1, Ordering::Relaxed);
-    }
     // checks for table entry
     if let Some(t) = ctx.t_table.lookup(position.hash, depth as u8, alpha, beta) {
-        TT_HITS.fetch_add(1, Ordering::Relaxed);
         return t;
     }
     let in_check = position.king_under_attack(ctx.table);
-    // null move: checks if a position is so good that in case of passing moves still keep the lead
-    if depth > 2 && !in_check {
-        let saved_side = position.side_to_move;
-        let saved_ep = position.en_passant;
-        let saved_hash = position.hash;
-        position.side_to_move = position.opponent();
-        position.en_passant = 64;
-        if saved_ep != 64 {
-            position.hash ^= zobrist::keys()[773 + (saved_ep % 8) as usize];
-        }
-        position.hash ^= zobrist::keys()[768];
-        let null_score = -negamax(position, depth - 3, ply + 1, -beta, -beta + 1, ctx);
-        position.side_to_move = saved_side;
-        position.en_passant = saved_ep;
-        position.hash = saved_hash;
-        if null_score >= beta {
-            NULL_MOVE_CUTOFFS.fetch_add(1, Ordering::Relaxed);
-            if !ctx.stop.load(Ordering::Relaxed) {
-                STORE_CALLS.fetch_add(1, Ordering::Relaxed);
-                ctx.t_table.store(position.hash, beta, depth as u8, 2, 0);
-            }
-
-            return beta;
-        }
+    // null move check
+    if let Some(score) = try_null_move(position, depth, ply, beta, in_check, ctx) {
+        return score;
     }
     // collect moves and sort them with move_score
     let mut legal_moves = MoveList::new();
@@ -130,14 +98,12 @@ pub fn negamax(
         }
         // Beta cutoff when move is too good that the oppenent allow it
         if alpha >= beta {
-            BETA_CUTOFFS.fetch_add(1, Ordering::Relaxed);
             break;
         }
         move_index += 1;
     }
     // check for checkmate and draw if no move found
     if legal_move_count == 0 {
-        STORE_CALLS.fetch_add(1, Ordering::Relaxed);
         if position.king_under_attack(ctx.table) {
             ctx.t_table
                 .store(position.hash, -1000000, depth as u8, 0, 0);
@@ -148,7 +114,6 @@ pub fn negamax(
         }
     }
     if alpha >= beta && !ctx.stop.load(Ordering::Relaxed) {
-        STORE_CALLS.fetch_add(1, Ordering::Relaxed);
         if best_move != 0 {
             let flag = Move { value: best_move }.flags();
             let from = Move { value: best_move }.from();
@@ -164,12 +129,10 @@ pub fn negamax(
         ctx.t_table
             .store(position.hash, alpha, depth as u8, 2, best_move);
     } else if alpha > original_alpha && !ctx.stop.load(Ordering::Relaxed) {
-        STORE_CALLS.fetch_add(1, Ordering::Relaxed);
         ctx.t_table
             .store(position.hash, alpha, depth as u8, 0, best_move);
     } else {
         if !ctx.stop.load(Ordering::Relaxed) {
-            STORE_CALLS.fetch_add(1, Ordering::Relaxed);
             ctx.t_table
                 .store(position.hash, alpha, depth as u8, 1, best_move);
         }
@@ -280,7 +243,6 @@ pub fn best_move(
         if let Some(mv) = partial_result_mv
             && !stop.load(Ordering::Relaxed)
         {
-            STORE_CALLS.fetch_add(1, Ordering::Relaxed);
             t_table.store(position.hash, highest_score, d as u8, 0, mv.value);
         }
         // info print for cutechess
@@ -369,7 +331,6 @@ pub fn quienscence(
     *ctx.nodes += 1;
     // check table
     if let Some(t) = ctx.t_table.lookup(position.hash, 0, alpha, beta) {
-        TT_HITS.fetch_add(1, Ordering::Relaxed);
         return t;
     }
     let stand_pat = evaluate_for_white(&position)
@@ -381,14 +342,12 @@ pub fn quienscence(
     let original_alpha = alpha;
     if qdepth <= 0 {
         if !ctx.stop.load(Ordering::Relaxed) {
-            STORE_CALLS.fetch_add(1, Ordering::Relaxed);
             ctx.t_table.store(position.hash, stand_pat, 0, 1, 0);
         }
         return stand_pat;
     }
     if stand_pat >= beta {
         if !ctx.stop.load(Ordering::Relaxed) {
-            STORE_CALLS.fetch_add(1, Ordering::Relaxed);
             ctx.t_table.store(position.hash, stand_pat, 0, 2, 0);
         }
         return beta;
@@ -419,7 +378,6 @@ pub fn quienscence(
 
         if score >= beta {
             if !ctx.stop.load(Ordering::Relaxed) {
-                STORE_CALLS.fetch_add(1, Ordering::Relaxed);
                 ctx.t_table.store(position.hash, beta, 0, 2, 0);
             }
             return beta;
@@ -429,15 +387,9 @@ pub fn quienscence(
         }
     }
     if alpha > original_alpha && !ctx.stop.load(Ordering::Relaxed) {
-        STORE_CALLS.fetch_add(1, Ordering::Relaxed);
         ctx.t_table.store(position.hash, alpha, 0, 0, 0);
     } else if !ctx.stop.load(Ordering::Relaxed) {
-        STORE_CALLS.fetch_add(1, Ordering::Relaxed);
         ctx.t_table.store(position.hash, alpha, 0, 1, 0);
     }
     alpha
-}
-
-pub fn reset_stats() {
-    NEGAMAX_CALLS.store(0, Ordering::Relaxed);
 }
