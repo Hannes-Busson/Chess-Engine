@@ -49,3 +49,18 @@ pub fn move_score(
         _ => ctx.history[from as usize][to as usize].min(8500),
     }
 }
+
+pub fn update_killers_history(best_move: u16, ply: u32, depth: u32, ctx: &mut SearchContext) {
+    if best_move != 0 {
+        let flag = Move { value: best_move }.flags();
+        let from = Move { value: best_move }.from();
+        let to = Move { value: best_move }.to();
+        if flag < MoveFlags::CAPTURE {
+            if ctx.killers[ply as usize][0] != best_move {
+                ctx.killers[ply as usize][1] = ctx.killers[ply as usize][0];
+                ctx.killers[ply as usize][0] = best_move;
+            }
+            ctx.history[from as usize][to as usize] += depth as i32 * depth as i32;
+        }
+    }
+}

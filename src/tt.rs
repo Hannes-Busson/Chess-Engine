@@ -1,5 +1,7 @@
 use std::cell::UnsafeCell;
 
+use crate::movegen::{Move, MoveFlags};
+
 pub const TABLE_SIZE: i32 = 22;
 
 #[derive(Clone, Copy)]
@@ -102,5 +104,23 @@ impl TranspositionTable {
             1 << TABLE_SIZE,
             filled as f64 / (1 << TABLE_SIZE) as f64 * 100.0
         );
+    }
+
+    pub fn store_with_bound(
+        &self,
+        hash: u64,
+        alpha: i32,
+        beta: i32,
+        original_alpha: i32,
+        depth: u8,
+        best_move: u16,
+    ) {
+        if alpha >= beta {
+            self.store(hash, alpha, depth, 2, best_move);
+        } else if alpha > original_alpha {
+            self.store(hash, alpha, depth, 0, best_move);
+        } else {
+            self.store(hash, alpha, depth, 1, best_move);
+        }
     }
 }

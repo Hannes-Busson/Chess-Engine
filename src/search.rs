@@ -1,6 +1,6 @@
 use crate::{
     eval::evaluate_for_white,
-    move_order::move_score,
+    move_order::{move_score, update_killers_history},
     movegen::{MagicTable, Move, MoveFlags, MoveGen, MoveList},
     position::{Color, Position},
     pruning::null_move::try_null_move,
@@ -107,30 +107,21 @@ pub fn negamax(
             return 0;
         }
     }
-    if alpha >= beta && !ctx.stop.load(Ordering::Relaxed) {
-        if best_move != 0 {
-            let flag = Move { value: best_move }.flags();
-            let from = Move { value: best_move }.from();
-            let to = Move { value: best_move }.to();
-            if flag < MoveFlags::CAPTURE {
-                if ctx.killers[ply as usize][0] != best_move {
-                    ctx.killers[ply as usize][1] = ctx.killers[ply as usize][0];
-                    ctx.killers[ply as usize][0] = best_move;
-                }
-                ctx.history[from as usize][to as usize] += depth as i32 * depth as i32;
-            }
-        }
-        ctx.t_table
-            .store(position.hash, alpha, depth as u8, 2, best_move);
-    } else if alpha > original_alpha && !ctx.stop.load(Ordering::Relaxed) {
-        ctx.t_table
-            .store(position.hash, alpha, depth as u8, 0, best_move);
-    } else {
-        if !ctx.stop.load(Ordering::Relaxed) {
-            ctx.t_table
-                .store(position.hash, alpha, depth as u8, 1, best_move);
-        }
+    let stop = ctx.stop.load(Ordering::Relaxed);
+    if alpha >= beta && !stop {
+        update_killers_history(best_move, ply, depth, ctx);
     }
+    if !stop {
+        ctx.t_table.store_with_bound(
+            position.hash,
+            alpha,
+            beta,
+            original_alpha,
+            depth as u8,
+            best_move,
+        );
+    }
+
     alpha
 }
 
