@@ -27,6 +27,15 @@ pub const PIECE_VALUES: [i32; 6] = [100, 320, 330, 500, 900, 0];
 
 pub const STOP_SCORE: i32 = i32::MAX;
 
+pub struct SearchContext<'a> {
+    pub table: &'a MagicTable,
+    pub t_table: &'a TranspositionTable,
+    pub killers: &'a mut [[u16; 2]; 64],
+    pub history: &'a mut [[i32; 64]; 64],
+    pub stop: &'a Arc<AtomicBool>,
+    pub nodes: &'a mut u64,
+}
+
 // search algorithm - brute force
 
 pub fn negamax(
@@ -35,27 +44,23 @@ pub fn negamax(
     ply: u32,
     mut alpha: i32,
     beta: i32,
-    table: &MagicTable,
-    t_table: &TranspositionTable,
-    killers: &mut [[u16; 2]; 64],
-    history: &mut [[i32; 64]; 64],
-    stop: &Arc<AtomicBool>,
-    nodes: &mut u64,
+    ctx: &mut SearchContext,
 ) -> i32 {
-    *nodes += 1;
+    *ctx.nodes += 1;
     // leaf check via quiescence: checks for captures on depth 0
     if depth == 0 {
-        return quienscence(position, alpha, beta, table, 4, t_table, stop, nodes);
+        return quienscence(position, alpha, beta, 4, ctx);
     }
-    if unsafe { *t_table.vault[position.hash as usize & tt::SHIFT].get() }.hash != position.hash {
+    if unsafe { *ctx.t_table.vault[position.hash as usize & tt::SHIFT].get() }.hash != position.hash
+    {
         TT_COLLISIONS.fetch_add(1, Ordering::Relaxed);
     }
     // checks for table entry
-    if let Some(t) = t_table.lookup(position.hash, depth as u8, alpha, beta) {
+    if let Some(t) = ctx.t_table.lookup(position.hash, depth as u8, alpha, beta) {
         TT_HITS.fetch_add(1, Ordering::Relaxed);
         return t;
     }
-    let in_check = position.king_under_attack(table);
+    let in_check = position.king_under_attack(ctx.table);
     // null move: checks if a position is so good that in case of passing moves still keep the lead
     if depth > 2 && !in_check {
         let saved_side = position.side_to_move;
@@ -67,27 +72,15 @@ pub fn negamax(
             position.hash ^= zobrist::keys()[773 + (saved_ep % 8) as usize];
         }
         position.hash ^= zobrist::keys()[768];
-        let null_score = -negamax(
-            position,
-            depth - 3,
-            ply + 1,
-            -beta,
-            -beta + 1,
-            table,
-            t_table,
-            killers,
-            history,
-            stop,
-            nodes,
-        );
+        let null_score = -negamax(position, depth - 3, ply + 1, -beta, -beta + 1, ctx);
         position.side_to_move = saved_side;
         position.en_passant = saved_ep;
         position.hash = saved_hash;
         if null_score >= beta {
             NULL_MOVE_CUTOFFS.fetch_add(1, Ordering::Relaxed);
-            if !stop.load(Ordering::Relaxed) {
+            if !ctx.stop.load(Ordering::Relaxed) {
                 STORE_CALLS.fetch_add(1, Ordering::Relaxed);
-                t_table.store(position.hash, beta, depth as u8, 2, 0);
+                ctx.t_table.store(position.hash, beta, depth as u8, 2, 0);
             }
 
             return beta;
@@ -95,11 +88,11 @@ pub fn negamax(
     }
     // collect moves and sort them with move_score
     let mut legal_moves = MoveList::new();
-    position.all_moves(table, &mut legal_moves);
-    let tt_move = t_table.get_best_move(position.hash).unwrap_or(0);
+    position.all_moves(ctx.table, &mut legal_moves);
+    let tt_move = ctx.t_table.get_best_move(position.hash).unwrap_or(0);
     legal_moves
         .as_mut_slice()
-        .sort_by_key(|mv| -move_score(&position, mv, tt_move, killers, ply, history));
+        .sort_by_key(|mv| -move_score(&position, mv, tt_move, ply, &ctx));
     let original_alpha = alpha;
     let mut best_move = 0;
     let mut move_index = 0;
@@ -113,7 +106,7 @@ pub fn negamax(
                 .0
                 .trailing_zeros() as u8,
             &position,
-            table,
+            ctx.table,
         ) {
             position.unmake_move(*mv, undo);
             continue;
@@ -122,48 +115,12 @@ pub fn negamax(
         }
         let mut score;
         if move_index >= 2 && depth >= 3 && !in_check && mv.flags() < MoveFlags::CAPTURE {
-            score = -negamax(
-                position,
-                depth - 2,
-                ply + 1,
-                -beta,
-                -alpha,
-                table,
-                t_table,
-                killers,
-                history,
-                stop,
-                nodes,
-            );
+            score = -negamax(position, depth - 2, ply + 1, -beta, -alpha, ctx);
             if score > alpha {
-                score = -negamax(
-                    position,
-                    depth - 1,
-                    ply + 1,
-                    -beta,
-                    -alpha,
-                    table,
-                    t_table,
-                    killers,
-                    history,
-                    stop,
-                    nodes,
-                );
+                score = -negamax(position, depth - 1, ply + 1, -beta, -alpha, ctx);
             }
         } else {
-            score = -negamax(
-                position,
-                depth - 1,
-                ply + 1,
-                -beta,
-                -alpha,
-                table,
-                t_table,
-                killers,
-                history,
-                stop,
-                nodes,
-            );
+            score = -negamax(position, depth - 1, ply + 1, -beta, -alpha, ctx);
         }
         position.unmake_move(*mv, undo);
         // updates alpha if checked move is better
@@ -181,36 +138,40 @@ pub fn negamax(
     // check for checkmate and draw if no move found
     if legal_move_count == 0 {
         STORE_CALLS.fetch_add(1, Ordering::Relaxed);
-        if position.king_under_attack(table) {
-            t_table.store(position.hash, -1000000, depth as u8, 0, 0);
+        if position.king_under_attack(ctx.table) {
+            ctx.t_table
+                .store(position.hash, -1000000, depth as u8, 0, 0);
             return -1000000;
         } else {
-            t_table.store(position.hash, 0, depth as u8, 0, 0);
+            ctx.t_table.store(position.hash, 0, depth as u8, 0, 0);
             return 0;
         }
     }
-    if alpha >= beta && !stop.load(Ordering::Relaxed) {
+    if alpha >= beta && !ctx.stop.load(Ordering::Relaxed) {
         STORE_CALLS.fetch_add(1, Ordering::Relaxed);
         if best_move != 0 {
             let flag = Move { value: best_move }.flags();
             let from = Move { value: best_move }.from();
             let to = Move { value: best_move }.to();
             if flag < MoveFlags::CAPTURE {
-                if killers[ply as usize][0] != best_move {
-                    killers[ply as usize][1] = killers[ply as usize][0];
-                    killers[ply as usize][0] = best_move;
+                if ctx.killers[ply as usize][0] != best_move {
+                    ctx.killers[ply as usize][1] = ctx.killers[ply as usize][0];
+                    ctx.killers[ply as usize][0] = best_move;
                 }
-                history[from as usize][to as usize] += depth as i32 * depth as i32;
+                ctx.history[from as usize][to as usize] += depth as i32 * depth as i32;
             }
         }
-        t_table.store(position.hash, alpha, depth as u8, 2, best_move);
-    } else if alpha > original_alpha && !stop.load(Ordering::Relaxed) {
+        ctx.t_table
+            .store(position.hash, alpha, depth as u8, 2, best_move);
+    } else if alpha > original_alpha && !ctx.stop.load(Ordering::Relaxed) {
         STORE_CALLS.fetch_add(1, Ordering::Relaxed);
-        t_table.store(position.hash, alpha, depth as u8, 0, best_move);
+        ctx.t_table
+            .store(position.hash, alpha, depth as u8, 0, best_move);
     } else {
-        if !stop.load(Ordering::Relaxed) {
+        if !ctx.stop.load(Ordering::Relaxed) {
             STORE_CALLS.fetch_add(1, Ordering::Relaxed);
-            t_table.store(position.hash, alpha, depth as u8, 1, best_move);
+            ctx.t_table
+                .store(position.hash, alpha, depth as u8, 1, best_move);
         }
     }
     alpha
@@ -236,6 +197,14 @@ pub fn best_move(
     let mut killers = [[0u16; 2]; 64];
     let mut history = [[0i32; 64]; 64];
     let mut prev_score = 0;
+    let mut ctx = SearchContext {
+        table,
+        t_table,
+        killers: &mut killers,
+        history: &mut history,
+        stop,
+        nodes: &mut nodes,
+    };
     // search for every depth ascending
     for d in 1..depth + 1 {
         let (mut alpha, mut beta) = if d == 1 {
@@ -245,13 +214,13 @@ pub fn best_move(
         };
         for i in 0..64 {
             for j in 0..64 {
-                history[i][j] /= 2;
+                ctx.history[i][j] /= 2;
             }
         }
         let tt_move = t_table.get_best_move(position.hash).unwrap_or(0);
         legal_moves
             .as_mut_slice()
-            .sort_by_key(|mv| -move_score(&position, mv, tt_move, &killers, 0, &history));
+            .sort_by_key(|mv| -move_score(&position, mv, tt_move, 0, &ctx));
         let mut partial_result_mv = None;
         let mut highest_score = -1000000i32;
         let mut legal_move_count = 0;
@@ -273,19 +242,7 @@ pub fn best_move(
                 } else {
                     legal_move_count += 1;
                 }
-                let score = -negamax(
-                    position,
-                    d - 1,
-                    0,
-                    -beta,
-                    -alpha,
-                    table,
-                    t_table,
-                    &mut killers,
-                    &mut history,
-                    stop,
-                    &mut nodes,
-                );
+                let score = -negamax(position, d - 1, 0, -beta, -alpha, &mut ctx);
 
                 position.unmake_move(*mv, undo);
 
@@ -332,9 +289,9 @@ pub fn best_move(
             "info depth {} score cp {} nodes {} time {} nps {}",
             d,
             highest_score,
-            nodes,
+            *ctx.nodes,
             elapsed_time,
-            nodes * 1000 / elapsed_time
+            *ctx.nodes * 1000 / elapsed_time
         );
         result = partial_result_mv;
     }
@@ -347,7 +304,7 @@ pub fn best_move(
     // eprintln!("{}", STORE_CALLS.load(Ordering::Relaxed));
     // t_table.stats();
     if let Some(s) = shared_nodes {
-        s.fetch_add(nodes, Ordering::Relaxed);
+        s.fetch_add(*ctx.nodes, Ordering::Relaxed);
     }
     result
 }
@@ -358,16 +315,15 @@ pub fn move_score(
     position: &Position,
     mv: &Move,
     tt_move: u16,
-    killers: &[[u16; 2]; 64],
     ply: u32,
-    history: &[[i32; 64]; 64],
+    ctx: &SearchContext,
 ) -> i32 {
     // check for best move in table
     if mv.value == tt_move {
         return 20000;
     }
     // check for killer moves
-    if mv.value == killers[ply as usize][0] || mv.value == killers[ply as usize][1] {
+    if mv.value == ctx.killers[ply as usize][0] || mv.value == ctx.killers[ply as usize][1] {
         return 9000;
     }
     let base = 10000i32;
@@ -397,7 +353,7 @@ pub fn move_score(
         MoveFlags::QUEENSIDE_CASTLE | MoveFlags::KINGSIDE_CASTLE => 6000,
         MoveFlags::KNIGHT_PROMOTION | MoveFlags::BISHOP_PROMOTION => 5000,
         MoveFlags::DOUBLE_PAWN_PUSH => 100,
-        _ => history[from as usize][to as usize].min(8500),
+        _ => ctx.history[from as usize][to as usize].min(8500),
     }
 }
 
@@ -407,15 +363,12 @@ pub fn quienscence(
     position: &mut Position,
     mut alpha: i32,
     beta: i32,
-    table: &MagicTable,
     qdepth: i32,
-    t_table: &TranspositionTable,
-    stop: &Arc<AtomicBool>,
-    nodes: &mut u64,
+    ctx: &mut SearchContext,
 ) -> i32 {
-    *nodes += 1;
+    *ctx.nodes += 1;
     // check table
-    if let Some(t) = t_table.lookup(position.hash, 0, alpha, beta) {
+    if let Some(t) = ctx.t_table.lookup(position.hash, 0, alpha, beta) {
         TT_HITS.fetch_add(1, Ordering::Relaxed);
         return t;
     }
@@ -427,16 +380,16 @@ pub fn quienscence(
         };
     let original_alpha = alpha;
     if qdepth <= 0 {
-        if !stop.load(Ordering::Relaxed) {
+        if !ctx.stop.load(Ordering::Relaxed) {
             STORE_CALLS.fetch_add(1, Ordering::Relaxed);
-            t_table.store(position.hash, stand_pat, 0, 1, 0);
+            ctx.t_table.store(position.hash, stand_pat, 0, 1, 0);
         }
         return stand_pat;
     }
     if stand_pat >= beta {
-        if !stop.load(Ordering::Relaxed) {
+        if !ctx.stop.load(Ordering::Relaxed) {
             STORE_CALLS.fetch_add(1, Ordering::Relaxed);
-            t_table.store(position.hash, stand_pat, 0, 2, 0);
+            ctx.t_table.store(position.hash, stand_pat, 0, 2, 0);
         }
         return beta;
     }
@@ -444,7 +397,7 @@ pub fn quienscence(
         alpha = stand_pat;
     }
     let mut captures = MoveList::new();
-    position.all_captures(table, &mut captures);
+    position.all_captures(ctx.table, &mut captures);
     // check all captures until no more captures
     for mv in captures.as_slice() {
         let undo = position.make_move(*mv);
@@ -455,28 +408,19 @@ pub fn quienscence(
                 .0
                 .trailing_zeros() as u8,
             &position,
-            table,
+            ctx.table,
         ) {
             position.unmake_move(*mv, undo);
             continue;
         }
 
-        let score = -quienscence(
-            position,
-            -beta,
-            -alpha,
-            table,
-            qdepth - 1,
-            t_table,
-            stop,
-            nodes,
-        );
+        let score = -quienscence(position, -beta, -alpha, qdepth - 1, ctx);
         position.unmake_move(*mv, undo);
 
         if score >= beta {
-            if !stop.load(Ordering::Relaxed) {
+            if !ctx.stop.load(Ordering::Relaxed) {
                 STORE_CALLS.fetch_add(1, Ordering::Relaxed);
-                t_table.store(position.hash, beta, 0, 2, 0);
+                ctx.t_table.store(position.hash, beta, 0, 2, 0);
             }
             return beta;
         }
@@ -484,12 +428,12 @@ pub fn quienscence(
             alpha = score;
         }
     }
-    if alpha > original_alpha && !stop.load(Ordering::Relaxed) {
+    if alpha > original_alpha && !ctx.stop.load(Ordering::Relaxed) {
         STORE_CALLS.fetch_add(1, Ordering::Relaxed);
-        t_table.store(position.hash, alpha, 0, 0, 0);
-    } else if !stop.load(Ordering::Relaxed) {
+        ctx.t_table.store(position.hash, alpha, 0, 0, 0);
+    } else if !ctx.stop.load(Ordering::Relaxed) {
         STORE_CALLS.fetch_add(1, Ordering::Relaxed);
-        t_table.store(position.hash, alpha, 0, 1, 0);
+        ctx.t_table.store(position.hash, alpha, 0, 1, 0);
     }
     alpha
 }
