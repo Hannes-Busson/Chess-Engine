@@ -1,10 +1,10 @@
-use crate::pruning::null_move::try_null_move;
 use crate::{
     eval::evaluate_for_white,
+    move_order::move_score,
     movegen::{MagicTable, Move, MoveFlags, MoveGen, MoveList},
     position::{Color, Position},
-    tt::{self, TranspositionTable},
-    zobrist,
+    pruning::null_move::try_null_move,
+    tt::TranspositionTable,
 };
 
 use std::{
@@ -14,12 +14,6 @@ use std::{
     },
     time::Instant,
 };
-
-// Stat variables
-
-pub const PIECE_VALUES: [i32; 6] = [100, 320, 330, 500, 900, 0];
-
-pub const STOP_SCORE: i32 = i32::MAX;
 
 pub struct SearchContext<'a> {
     pub table: &'a MagicTable,
@@ -257,66 +251,10 @@ pub fn best_move(
         );
         result = partial_result_mv;
     }
-    // eprintln!("{}", NEGAMAX_CALLS.load(Ordering::Relaxed));
-    // eprintln!("{}", TT_HITS.load(Ordering::Relaxed));
-    // eprintln!("{}", TT_COLLISIONS.load(Ordering::Relaxed));
-    // eprintln!("{}", BETA_CUTOFFS.load(Ordering::Relaxed));
-    // eprintln!("{}", NULL_MOVE_CUTOFFS.load(Ordering::Relaxed));
-    // eprintln!("{}", QUIESCENCE_CALLS.load(Ordering::Relaxed));
-    // eprintln!("{}", STORE_CALLS.load(Ordering::Relaxed));
-    // t_table.stats();
     if let Some(s) = shared_nodes {
         s.fetch_add(*ctx.nodes, Ordering::Relaxed);
     }
     result
-}
-
-// move_score for ordering move evaluation for improving beta cutoffs
-
-pub fn move_score(
-    position: &Position,
-    mv: &Move,
-    tt_move: u16,
-    ply: u32,
-    ctx: &SearchContext,
-) -> i32 {
-    // check for best move in table
-    if mv.value == tt_move {
-        return 20000;
-    }
-    // check for killer moves
-    if mv.value == ctx.killers[ply as usize][0] || mv.value == ctx.killers[ply as usize][1] {
-        return 9000;
-    }
-    let base = 10000i32;
-    let from = mv.from();
-    let to = mv.to();
-    let piece_on_to = position.piece_on[to as usize] % 6;
-    // general move ordering
-    match mv.flags() {
-        MoveFlags::CAPTURE => {
-            base + PIECE_VALUES[(piece_on_to) as usize]
-                - PIECE_VALUES[(position.piece_on[from as usize] % 6) as usize] as i32
-        }
-        MoveFlags::KNIGHT_PROMOTION_CAPTURE => {
-            base + PIECE_VALUES[(piece_on_to) as usize] - PIECE_VALUES[0] as i32
-        }
-        MoveFlags::BISHOP_PROMOTION_CAPTURE => {
-            base + PIECE_VALUES[(piece_on_to) as usize] - PIECE_VALUES[0] as i32
-        }
-        MoveFlags::ROOK_PROMOTION_CAPTURE => {
-            base + PIECE_VALUES[(piece_on_to) as usize] - PIECE_VALUES[0] as i32
-        }
-        MoveFlags::QUEEN_PROMOTION_CAPTURE => {
-            base + PIECE_VALUES[(piece_on_to) as usize] - PIECE_VALUES[0] as i32
-        }
-        MoveFlags::EN_PASSANT => base + PIECE_VALUES[0] - PIECE_VALUES[0] as i32,
-        MoveFlags::QUEEN_PROMOTION | MoveFlags::ROOK_PROMOTION => 8000,
-        MoveFlags::QUEENSIDE_CASTLE | MoveFlags::KINGSIDE_CASTLE => 6000,
-        MoveFlags::KNIGHT_PROMOTION | MoveFlags::BISHOP_PROMOTION => 5000,
-        MoveFlags::DOUBLE_PAWN_PUSH => 100,
-        _ => ctx.history[from as usize][to as usize].min(8500),
-    }
 }
 
 // quiescence: check for captures on depth 0 to not miss important captures

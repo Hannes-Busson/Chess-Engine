@@ -2,6 +2,7 @@ mod bitboard;
 mod eval;
 mod game;
 mod masks;
+mod move_order;
 mod movegen;
 mod position;
 mod pruning;
