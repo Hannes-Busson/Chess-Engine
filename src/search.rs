@@ -129,7 +129,7 @@ pub fn negamax(
     alpha
 }
 
-// best_move kickoff for search with negamax calls
+// best_move kickoff for search with negamax calls and aspiration window
 
 pub fn best_move(
     position: &mut Position,
