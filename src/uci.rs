@@ -4,11 +4,11 @@ use std::thread::JoinHandle;
 use std::{ops::Add, time::Instant, u64};
 
 use crate::{
+    board::position::{Color, Position},
     file_to_number,
-    movegen::{MagicTable, Move, MoveList},
-    position::{Color, Position},
-    search::{self, best_move},
-    tt::TranspositionTable,
+    movegen::movegen::{MagicTable, Move, MoveList},
+    search::search::best_move,
+    search::tt::TranspositionTable,
 };
 
 pub fn run() {
@@ -60,7 +60,7 @@ pub fn run() {
                 _ => println!("Command unknown"),
             },
             "go" => {
-                let mut stop = Arc::new(AtomicBool::new(false));
+                let stop = Arc::new(AtomicBool::new(false));
                 match tokens[1] {
                     "depth" => {
                         let depth: u32 = tokens[2].parse().unwrap();
@@ -144,17 +144,17 @@ pub fn run() {
                 ];
                 let shared_nodes = Arc::new(AtomicU64::new(0));
                 for p in positions {
-                    let mut stop = Arc::new(AtomicBool::new(false));
+                    let stop = Arc::new(AtomicBool::new(false));
                     let mut pos = Position::from_fen(&p);
                     let mut handler: Vec<JoinHandle<()>> = Vec::new();
-                    for i in 0..num_threads - 1 {
+                    for _i in 0..num_threads - 1 {
                         let helper_shared_nodes = Arc::clone(&shared_nodes);
                         let helper_table = Arc::clone(&table);
                         let helper_t_table = Arc::clone(&t_table);
                         let mut helper_position = pos.clone();
                         let helper_stop = Arc::clone(&stop);
                         handler.push(std::thread::spawn(move || {
-                            let best_mv = best_move(
+                            let _best_mv = best_move(
                                 &mut helper_position,
                                 10,
                                 &helper_table,
@@ -204,7 +204,7 @@ pub fn run() {
                 let shared_nodes = Arc::new(AtomicU64::new(0));
                 for p in positions {
                     t_table = Arc::new(TranspositionTable::new());
-                    let mut stop = Arc::new(AtomicBool::new(false));
+                    let stop = Arc::new(AtomicBool::new(false));
                     let mut pos = Position::from_fen(&p);
                     let best_mv = best_move(
                         &mut pos,
@@ -310,15 +310,15 @@ pub fn mult_best_move(
     depth: u32,
     time_limit_ms: u64,
 ) -> Option<Move> {
-    let mut stop = Arc::new(AtomicBool::new(false));
+    let stop = Arc::new(AtomicBool::new(false));
     let mut handler: Vec<JoinHandle<()>> = Vec::new();
-    for i in 0..num_threads - 1 {
+    for _i in 0..num_threads - 1 {
         let helper_table = Arc::clone(&table);
         let helper_t_table = Arc::clone(&t_table);
         let mut helper_position = game.clone();
         let helper_stop = Arc::clone(&stop);
         handler.push(std::thread::spawn(move || {
-            let best_mv = best_move(
+            let _best_mv = best_move(
                 &mut helper_position,
                 depth,
                 &helper_table,

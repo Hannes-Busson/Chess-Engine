@@ -1,7 +1,5 @@
-use std::io::Write;
-
-use crate::movegen::{Move, MoveFlags};
-use crate::position::{Color, Position};
+use crate::board::position::{Color, Position};
+use crate::movegen::movegen::{Move, MoveFlags};
 
 pub struct Game {
     pub position: Position,

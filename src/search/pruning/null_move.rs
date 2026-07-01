@@ -1,8 +1,6 @@
-// src/pruning/null_move.rs
-
-use crate::position::Position;
-use crate::search::{SearchContext, negamax};
-use crate::zobrist;
+use crate::board::position::Position;
+use crate::board::zobrist;
+use crate::search::search::{SearchContext, negamax};
 use std::sync::atomic::Ordering;
 
 pub fn try_null_move(

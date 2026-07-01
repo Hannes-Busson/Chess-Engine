@@ -1,8 +1,8 @@
 // move_score for ordering move evaluation for improving beta cutoffs
 
-use crate::movegen::{Move, MoveFlags};
-use crate::position::{PIECE_VALUES, Position};
-use crate::search::SearchContext;
+use crate::board::position::{PIECE_VALUES, Position};
+use crate::movegen::movegen::{Move, MoveFlags};
+use crate::search::search::SearchContext;
 
 pub fn move_score(
     position: &Position,

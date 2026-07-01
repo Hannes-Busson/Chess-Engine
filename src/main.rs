@@ -1,25 +1,19 @@
-mod bitboard;
+mod board;
 mod eval;
 mod game;
-mod masks;
-mod move_order;
 mod movegen;
-mod position;
-mod pruning;
 mod search;
 #[cfg(test)]
 mod tests;
-mod tt;
 mod uci;
-mod zobrist;
 
 use std::io;
 use std::time::Instant;
 
-use crate::{game::Game, position::Position};
-use position::Color;
+use crate::game::Game;
+use board::position::Color;
 
-use crate::movegen::{MagicTable, MoveList};
+use crate::movegen::movegen::{MagicTable, MoveList};
 
 fn main() {
     uci::run();

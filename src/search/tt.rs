@@ -1,7 +1,5 @@
 use std::cell::UnsafeCell;
 
-use crate::movegen::{Move, MoveFlags};
-
 pub const TABLE_SIZE: i32 = 22;
 
 #[derive(Clone, Copy)]

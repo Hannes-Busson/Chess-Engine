@@ -1,6 +1,6 @@
-use crate::bitboard::Bitboard;
-use crate::movegen::{MagicTable, Move, MoveFlags, MoveGen, MoveList};
-use crate::zobrist;
+use crate::board::bitboard::Bitboard;
+use crate::board::zobrist;
+use crate::movegen::movegen::{MagicTable, Move, MoveFlags, MoveGen, MoveList};
 
 pub const PIECE_VALUES: [i32; 6] = [100, 320, 330, 500, 900, 0];
 pub const PST_BONUS: [[i32; 64]; 7] = [

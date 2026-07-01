@@ -1,7 +1,7 @@
 use crate::{
-    movegen::MoveFlags,
-    position::Position,
-    search::{SearchContext, negamax},
+    board::position::Position,
+    movegen::movegen::MoveFlags,
+    search::search::{SearchContext, negamax},
 };
 
 pub fn try_lmr(

@@ -1,9 +1,10 @@
 use std::vec;
 
-use crate::bitboard::Bitboard;
-use crate::masks::Files;
-use crate::masks::Ranks;
-use crate::position::{CastlingRights, Color, PieceType, Position};
+use crate::board::bitboard::Bitboard;
+use crate::board::masks::Files;
+use crate::board::masks::Ranks;
+use crate::board::masks::between;
+use crate::board::position::{CastlingRights, Color, PieceType, Position};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Move {
@@ -429,7 +430,9 @@ impl MagicTable {
             rook_shifts[i] = (64 - rook_masks[i].0.count_ones()) as u8;
         }
 
-        let table = MagicTable {
+        between(0, 0);
+
+        MagicTable {
             bishop_masks: bishop_masks,
             bishop_magics: BISHOP_MAGICS,
             bishop_attacks: bishop_attacks,
@@ -438,8 +441,7 @@ impl MagicTable {
             rook_magics: ROOK_MAGICS,
             rook_attacks: rook_attacks,
             rook_shifts: rook_shifts,
-        };
-        table
+        }
     }
 }
 

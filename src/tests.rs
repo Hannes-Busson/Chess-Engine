@@ -1,8 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use crate::bitboard::Bitboard;
-    use crate::movegen::{MagicTable, Move, MoveFlags, MoveGen, MoveList};
-    use crate::position::{CastlingRights, Color, PieceType, Position};
+    use crate::board::bitboard::Bitboard;
+    use crate::board::masks::between;
+    use crate::board::position::{CastlingRights, Color, PieceType, Position};
+    use crate::movegen::movegen::{MagicTable, Move, MoveFlags, MoveGen, MoveList};
 
     fn empty(side: Color) -> Position {
         Position {
@@ -75,7 +76,10 @@ mod tests {
         place(&mut pos, Color::White, PieceType::Pawn, sq(4, 1));
         let list = moves(&pos);
         let moves = list.as_slice();
-        assert!(has(moves, sq(4, 1), sq(4, 2), MoveFlags::QUIET), "e2-e3 missing");
+        assert!(
+            has(moves, sq(4, 1), sq(4, 2), MoveFlags::QUIET),
+            "e2-e3 missing"
+        );
         assert!(
             has(moves, sq(4, 1), sq(4, 3), MoveFlags::DOUBLE_PAWN_PUSH),
             "e2-e4 missing"
@@ -90,7 +94,10 @@ mod tests {
         place(&mut pos, Color::Black, PieceType::Pawn, sq(4, 6));
         let list = moves(&pos);
         let moves = list.as_slice();
-        assert!(has(moves, sq(4, 6), sq(4, 5), MoveFlags::QUIET), "e7-e6 missing");
+        assert!(
+            has(moves, sq(4, 6), sq(4, 5), MoveFlags::QUIET),
+            "e7-e6 missing"
+        );
         assert!(
             has(moves, sq(4, 6), sq(4, 4), MoveFlags::DOUBLE_PAWN_PUSH),
             "e7-e5 missing"
@@ -120,9 +127,14 @@ mod tests {
         place(&mut pos, Color::Black, PieceType::Pawn, sq(4, 3));
         let list = moves(&pos);
         let moves = list.as_slice();
-        assert!(has(moves, sq(4, 1), sq(4, 2), MoveFlags::QUIET), "e2-e3 should be allowed");
         assert!(
-            !moves.iter().any(|m| m.from() == sq(4, 1) && m.to() == sq(4, 3)),
+            has(moves, sq(4, 1), sq(4, 2), MoveFlags::QUIET),
+            "e2-e3 should be allowed"
+        );
+        assert!(
+            !moves
+                .iter()
+                .any(|m| m.from() == sq(4, 1) && m.to() == sq(4, 3)),
             "e2-e4 should be blocked"
         );
     }
@@ -139,8 +151,14 @@ mod tests {
         place(&mut pos, Color::Black, PieceType::Pawn, sq(5, 4));
         let list = moves(&pos);
         let moves = list.as_slice();
-        assert!(has(moves, sq(4, 3), sq(3, 4), MoveFlags::CAPTURE), "e4xd5 missing");
-        assert!(has(moves, sq(4, 3), sq(5, 4), MoveFlags::CAPTURE), "e4xf5 missing");
+        assert!(
+            has(moves, sq(4, 3), sq(3, 4), MoveFlags::CAPTURE),
+            "e4xd5 missing"
+        );
+        assert!(
+            has(moves, sq(4, 3), sq(5, 4), MoveFlags::CAPTURE),
+            "e4xf5 missing"
+        );
     }
 
     // ── En passant ───────────────────────────────────────────────────────────
@@ -155,19 +173,33 @@ mod tests {
         pos.en_passant = sq(3, 5);
         let list = moves(&pos);
         let moves = list.as_slice();
-        assert!(has(moves, sq(4, 4), sq(3, 5), MoveFlags::EN_PASSANT), "e5xd6 ep missing");
-        let ep_move = *moves.iter().find(|m| m.flags() == MoveFlags::EN_PASSANT).unwrap();
+        assert!(
+            has(moves, sq(4, 4), sq(3, 5), MoveFlags::EN_PASSANT),
+            "e5xd6 ep missing"
+        );
+        let ep_move = *moves
+            .iter()
+            .find(|m| m.flags() == MoveFlags::EN_PASSANT)
+            .unwrap();
         let mut new_pos = pos;
         new_pos.make_move(ep_move);
         assert!(
-            !new_pos.get_piece_bitboard(Color::Black, PieceType::Pawn).get_bit(sq(3, 4)),
+            !new_pos
+                .get_piece_bitboard(Color::Black, PieceType::Pawn)
+                .get_bit(sq(3, 4)),
             "black pawn d5 should be removed"
         );
         assert!(
-            new_pos.get_piece_bitboard(Color::White, PieceType::Pawn).get_bit(sq(3, 5)),
+            new_pos
+                .get_piece_bitboard(Color::White, PieceType::Pawn)
+                .get_bit(sq(3, 5)),
             "white pawn should be on d6"
         );
-        assert_eq!(new_pos.piece_on[sq(3, 4) as usize], 64, "piece_on d5 should be empty");
+        assert_eq!(
+            new_pos.piece_on[sq(3, 4) as usize],
+            64,
+            "piece_on d5 should be empty"
+        );
         assert_eq!(
             new_pos.piece_on[sq(3, 5) as usize],
             0 * 6 + 0,
@@ -185,19 +217,33 @@ mod tests {
         pos.en_passant = sq(4, 2);
         let list = moves(&pos);
         let moves = list.as_slice();
-        assert!(has(moves, sq(3, 3), sq(4, 2), MoveFlags::EN_PASSANT), "d4xe3 ep missing");
-        let ep_move = *moves.iter().find(|m| m.flags() == MoveFlags::EN_PASSANT).unwrap();
+        assert!(
+            has(moves, sq(3, 3), sq(4, 2), MoveFlags::EN_PASSANT),
+            "d4xe3 ep missing"
+        );
+        let ep_move = *moves
+            .iter()
+            .find(|m| m.flags() == MoveFlags::EN_PASSANT)
+            .unwrap();
         let mut new_pos = pos;
         new_pos.make_move(ep_move);
         assert!(
-            !new_pos.get_piece_bitboard(Color::White, PieceType::Pawn).get_bit(sq(4, 3)),
+            !new_pos
+                .get_piece_bitboard(Color::White, PieceType::Pawn)
+                .get_bit(sq(4, 3)),
             "white pawn e4 should be removed"
         );
         assert!(
-            new_pos.get_piece_bitboard(Color::Black, PieceType::Pawn).get_bit(sq(4, 2)),
+            new_pos
+                .get_piece_bitboard(Color::Black, PieceType::Pawn)
+                .get_bit(sq(4, 2)),
             "black pawn should be on e3"
         );
-        assert_eq!(new_pos.piece_on[sq(4, 3) as usize], 64, "piece_on e4 should be empty");
+        assert_eq!(
+            new_pos.piece_on[sq(4, 3) as usize],
+            64,
+            "piece_on e4 should be empty"
+        );
     }
 
     #[test]
@@ -211,7 +257,11 @@ mod tests {
             .unwrap();
         let mut new_pos = pos;
         new_pos.make_move(dpp);
-        assert_eq!(new_pos.en_passant, sq(4, 2), "ep square after e2-e4 should be e3");
+        assert_eq!(
+            new_pos.en_passant,
+            sq(4, 2),
+            "ep square after e2-e4 should be e3"
+        );
     }
 
     #[test]
@@ -228,7 +278,11 @@ mod tests {
             .unwrap();
         let mut new_pos = pos;
         new_pos.make_move(dpp);
-        assert_eq!(new_pos.en_passant, sq(4, 5), "ep square after e7-e5 should be e6");
+        assert_eq!(
+            new_pos.en_passant,
+            sq(4, 5),
+            "ep square after e7-e5 should be e6"
+        );
     }
 
     // ── Promotions ───────────────────────────────────────────────────────────
@@ -246,7 +300,11 @@ mod tests {
         assert!(has(moves, sq(4, 6), sq(4, 7), MoveFlags::ROOK_PROMOTION));
         assert!(has(moves, sq(4, 6), sq(4, 7), MoveFlags::QUEEN_PROMOTION));
         let count = moves.iter().filter(|m| m.from() == sq(4, 6)).count();
-        assert_eq!(count, 4, "exactly 4 promotion moves expected, got {}", count);
+        assert_eq!(
+            count, 4,
+            "exactly 4 promotion moves expected, got {}",
+            count
+        );
     }
 
     #[test]
@@ -258,10 +316,30 @@ mod tests {
         place(&mut pos, Color::Black, PieceType::Rook, sq(5, 7));
         let list = moves(&pos);
         let moves = list.as_slice();
-        assert!(has(moves, sq(4, 6), sq(5, 7), MoveFlags::KNIGHT_PROMOTION_CAPTURE));
-        assert!(has(moves, sq(4, 6), sq(5, 7), MoveFlags::BISHOP_PROMOTION_CAPTURE));
-        assert!(has(moves, sq(4, 6), sq(5, 7), MoveFlags::ROOK_PROMOTION_CAPTURE));
-        assert!(has(moves, sq(4, 6), sq(5, 7), MoveFlags::QUEEN_PROMOTION_CAPTURE));
+        assert!(has(
+            moves,
+            sq(4, 6),
+            sq(5, 7),
+            MoveFlags::KNIGHT_PROMOTION_CAPTURE
+        ));
+        assert!(has(
+            moves,
+            sq(4, 6),
+            sq(5, 7),
+            MoveFlags::BISHOP_PROMOTION_CAPTURE
+        ));
+        assert!(has(
+            moves,
+            sq(4, 6),
+            sq(5, 7),
+            MoveFlags::ROOK_PROMOTION_CAPTURE
+        ));
+        assert!(has(
+            moves,
+            sq(4, 6),
+            sq(5, 7),
+            MoveFlags::QUEEN_PROMOTION_CAPTURE
+        ));
     }
 
     #[test]
@@ -279,11 +357,15 @@ mod tests {
         let mut new_pos = pos;
         new_pos.make_move(qp);
         assert!(
-            new_pos.get_piece_bitboard(Color::White, PieceType::Queen).get_bit(sq(4, 7)),
+            new_pos
+                .get_piece_bitboard(Color::White, PieceType::Queen)
+                .get_bit(sq(4, 7)),
             "white queen should be on e8"
         );
         assert!(
-            !new_pos.get_piece_bitboard(Color::White, PieceType::Pawn).get_bit(sq(4, 6)),
+            !new_pos
+                .get_piece_bitboard(Color::White, PieceType::Pawn)
+                .get_bit(sq(4, 6)),
             "pawn should be gone from e7"
         );
         assert_eq!(
@@ -318,20 +400,38 @@ mod tests {
         place(&mut pos, Color::Black, PieceType::King, sq(4, 7));
         let list = moves(&pos);
         let moves = list.as_slice();
-        assert!(has(moves, sq(4, 0), sq(6, 0), MoveFlags::KINGSIDE_CASTLE), "kingside castle missing");
-        let castle = *moves.iter().find(|m| m.flags() == MoveFlags::KINGSIDE_CASTLE).unwrap();
+        assert!(
+            has(moves, sq(4, 0), sq(6, 0), MoveFlags::KINGSIDE_CASTLE),
+            "kingside castle missing"
+        );
+        let castle = *moves
+            .iter()
+            .find(|m| m.flags() == MoveFlags::KINGSIDE_CASTLE)
+            .unwrap();
         let mut new_pos = pos;
         new_pos.make_move(castle);
         assert!(
-            new_pos.get_piece_bitboard(Color::White, PieceType::King).get_bit(sq(6, 0)),
+            new_pos
+                .get_piece_bitboard(Color::White, PieceType::King)
+                .get_bit(sq(6, 0)),
             "king should be on g1"
         );
         assert!(
-            new_pos.get_piece_bitboard(Color::White, PieceType::Rook).get_bit(sq(5, 0)),
+            new_pos
+                .get_piece_bitboard(Color::White, PieceType::Rook)
+                .get_bit(sq(5, 0)),
             "rook should be on f1"
         );
-        assert!(!new_pos.get_piece_bitboard(Color::White, PieceType::King).get_bit(sq(4, 0)));
-        assert!(!new_pos.get_piece_bitboard(Color::White, PieceType::Rook).get_bit(sq(7, 0)));
+        assert!(
+            !new_pos
+                .get_piece_bitboard(Color::White, PieceType::King)
+                .get_bit(sq(4, 0))
+        );
+        assert!(
+            !new_pos
+                .get_piece_bitboard(Color::White, PieceType::Rook)
+                .get_bit(sq(7, 0))
+        );
         assert_eq!(new_pos.piece_on[sq(4, 0) as usize], 64);
         assert_eq!(new_pos.piece_on[sq(7, 0) as usize], 64);
         assert_eq!(
@@ -354,12 +454,27 @@ mod tests {
             has(moves, sq(4, 0), sq(2, 0), MoveFlags::QUEENSIDE_CASTLE),
             "queenside castle missing"
         );
-        let castle = *moves.iter().find(|m| m.flags() == MoveFlags::QUEENSIDE_CASTLE).unwrap();
+        let castle = *moves
+            .iter()
+            .find(|m| m.flags() == MoveFlags::QUEENSIDE_CASTLE)
+            .unwrap();
         let mut new_pos = pos;
         new_pos.make_move(castle);
-        assert!(new_pos.get_piece_bitboard(Color::White, PieceType::King).get_bit(sq(2, 0)));
-        assert!(new_pos.get_piece_bitboard(Color::White, PieceType::Rook).get_bit(sq(3, 0)));
-        assert!(!new_pos.get_piece_bitboard(Color::White, PieceType::Rook).get_bit(sq(0, 0)));
+        assert!(
+            new_pos
+                .get_piece_bitboard(Color::White, PieceType::King)
+                .get_bit(sq(2, 0))
+        );
+        assert!(
+            new_pos
+                .get_piece_bitboard(Color::White, PieceType::Rook)
+                .get_bit(sq(3, 0))
+        );
+        assert!(
+            !new_pos
+                .get_piece_bitboard(Color::White, PieceType::Rook)
+                .get_bit(sq(0, 0))
+        );
         assert_eq!(new_pos.piece_on[sq(0, 0) as usize], 64);
     }
 
@@ -376,12 +491,27 @@ mod tests {
             has(moves, sq(4, 7), sq(6, 7), MoveFlags::KINGSIDE_CASTLE),
             "black kingside castle missing"
         );
-        let castle = *moves.iter().find(|m| m.flags() == MoveFlags::KINGSIDE_CASTLE).unwrap();
+        let castle = *moves
+            .iter()
+            .find(|m| m.flags() == MoveFlags::KINGSIDE_CASTLE)
+            .unwrap();
         let mut new_pos = pos;
         new_pos.make_move(castle);
-        assert!(new_pos.get_piece_bitboard(Color::Black, PieceType::King).get_bit(sq(6, 7)));
-        assert!(new_pos.get_piece_bitboard(Color::Black, PieceType::Rook).get_bit(sq(5, 7)));
-        assert!(!new_pos.get_piece_bitboard(Color::Black, PieceType::Rook).get_bit(sq(7, 7)));
+        assert!(
+            new_pos
+                .get_piece_bitboard(Color::Black, PieceType::King)
+                .get_bit(sq(6, 7))
+        );
+        assert!(
+            new_pos
+                .get_piece_bitboard(Color::Black, PieceType::Rook)
+                .get_bit(sq(5, 7))
+        );
+        assert!(
+            !new_pos
+                .get_piece_bitboard(Color::Black, PieceType::Rook)
+                .get_bit(sq(7, 7))
+        );
     }
 
     #[test]
@@ -397,12 +527,27 @@ mod tests {
             has(moves, sq(4, 7), sq(2, 7), MoveFlags::QUEENSIDE_CASTLE),
             "black queenside castle missing"
         );
-        let castle = *moves.iter().find(|m| m.flags() == MoveFlags::QUEENSIDE_CASTLE).unwrap();
+        let castle = *moves
+            .iter()
+            .find(|m| m.flags() == MoveFlags::QUEENSIDE_CASTLE)
+            .unwrap();
         let mut new_pos = pos;
         new_pos.make_move(castle);
-        assert!(new_pos.get_piece_bitboard(Color::Black, PieceType::King).get_bit(sq(2, 7)));
-        assert!(new_pos.get_piece_bitboard(Color::Black, PieceType::Rook).get_bit(sq(3, 7)));
-        assert_eq!(new_pos.piece_on[sq(0, 7) as usize], 64, "a8 should be empty");
+        assert!(
+            new_pos
+                .get_piece_bitboard(Color::Black, PieceType::King)
+                .get_bit(sq(2, 7))
+        );
+        assert!(
+            new_pos
+                .get_piece_bitboard(Color::Black, PieceType::Rook)
+                .get_bit(sq(3, 7))
+        );
+        assert_eq!(
+            new_pos.piece_on[sq(0, 7) as usize],
+            64,
+            "a8 should be empty"
+        );
     }
 
     #[test]
@@ -415,7 +560,10 @@ mod tests {
         place(&mut pos, Color::Black, PieceType::King, sq(4, 7));
         let list = moves(&pos);
         assert!(
-            !list.as_slice().iter().any(|m| m.flags() == MoveFlags::KINGSIDE_CASTLE),
+            !list
+                .as_slice()
+                .iter()
+                .any(|m| m.flags() == MoveFlags::KINGSIDE_CASTLE),
             "castle should be blocked by piece on f1"
         );
     }
@@ -430,7 +578,10 @@ mod tests {
         place(&mut pos, Color::Black, PieceType::Rook, sq(6, 7));
         let list = moves(&pos);
         assert!(
-            !list.as_slice().iter().any(|m| m.flags() == MoveFlags::KINGSIDE_CASTLE),
+            !list
+                .as_slice()
+                .iter()
+                .any(|m| m.flags() == MoveFlags::KINGSIDE_CASTLE),
             "castle should be blocked: g1 is attacked"
         );
     }
@@ -502,9 +653,15 @@ mod tests {
             0 * 6 + 3,
             "a7 should have white rook"
         );
-        assert_eq!(new_pos.piece_on[sq(0, 3) as usize], 64, "a4 should be empty");
+        assert_eq!(
+            new_pos.piece_on[sq(0, 3) as usize],
+            64,
+            "a4 should be empty"
+        );
         assert!(
-            !new_pos.get_piece_bitboard(Color::Black, PieceType::Pawn).get_bit(sq(0, 6)),
+            !new_pos
+                .get_piece_bitboard(Color::Black, PieceType::Pawn)
+                .get_bit(sq(0, 6)),
             "black pawn a7 should be gone"
         );
     }
@@ -604,7 +761,10 @@ mod tests {
         let attacks = MoveGen::rook_attacks(sq(0, 0), occ, &magic());
         assert!(attacks.get_bit(sq(0, 1)), "a2 reachable");
         assert!(attacks.get_bit(sq(0, 2)), "a3 reachable");
-        assert!(attacks.get_bit(sq(0, 3)), "a4 (blocker) included as capture target");
+        assert!(
+            attacks.get_bit(sq(0, 3)),
+            "a4 (blocker) included as capture target"
+        );
         assert!(!attacks.get_bit(sq(0, 4)), "a5 should be cut off");
     }
 
@@ -646,15 +806,12 @@ mod tests {
             let mut subset = 0u64;
             loop {
                 let expected = MoveGen::rook_attacks_slow(sq, Bitboard(subset));
-                let index =
-                    (subset.wrapping_mul(table.rook_magics[sq as usize]) >> shift) as usize;
+                let index = (subset.wrapping_mul(table.rook_magics[sq as usize]) >> shift) as usize;
                 let got = table.rook_attacks[sq as usize][index];
                 assert_eq!(
-                    got.0,
-                    expected.0,
+                    got.0, expected.0,
                     "rook magic collision on sq={sq}: occupancy={subset:#066b} expected={:#066b} got={:#066b}",
-                    expected.0,
-                    got.0
+                    expected.0, got.0
                 );
                 subset = subset.wrapping_sub(mask) & mask;
                 if subset == 0 {
@@ -677,11 +834,9 @@ mod tests {
                     (subset.wrapping_mul(table.bishop_magics[sq as usize]) >> shift) as usize;
                 let got = table.bishop_attacks[sq as usize][index];
                 assert_eq!(
-                    got.0,
-                    expected.0,
+                    got.0, expected.0,
                     "bishop magic collision on sq={sq}: occupancy={subset:#066b} expected={:#066b} got={:#066b}",
-                    expected.0,
-                    got.0
+                    expected.0, got.0
                 );
                 subset = subset.wrapping_sub(mask) & mask;
                 if subset == 0 {
@@ -707,7 +862,10 @@ mod tests {
         assert!(attacks.get_bit(sq(3, 6)), "d7 reachable");
         assert!(attacks.get_bit(sq(3, 5)), "d6 included as capture target");
         assert!(!attacks.get_bit(sq(3, 4)), "d5 must be cut off");
-        assert!(!attacks.get_bit(sq(3, 1)), "d2 must be cut off (king capture!)");
+        assert!(
+            !attacks.get_bit(sq(3, 1)),
+            "d2 must be cut off (king capture!)"
+        );
     }
 
     #[test]
@@ -718,7 +876,11 @@ mod tests {
         place(&mut pos, Color::Black, PieceType::Queen, sq(3, 1));
         place(&mut pos, Color::Black, PieceType::Pawn, sq(3, 5));
         let list = moves(&pos);
-        let queen_moves: Vec<_> = list.as_slice().iter().filter(|m| m.from() == sq(3, 1)).collect();
+        let queen_moves: Vec<_> = list
+            .as_slice()
+            .iter()
+            .filter(|m| m.from() == sq(3, 1))
+            .collect();
         assert!(
             !queen_moves.iter().any(|m| m.to() == sq(3, 6)),
             "queen on d2 must not reach d7 with own pawn on d6"
@@ -729,7 +891,78 @@ mod tests {
         );
     }
 
-    // ── Legal move generation ────────────────────────────────────────────────
+    // ── Between table ────────────────────────────────────────────────────────
+
+    #[test]
+    fn between_a1_h1_rank() {
+        let b = between(0, 7);
+        for sq in 1..7u8 {
+            assert!(b.get_bit(sq), "sq {} should be set", sq);
+        }
+        assert!(!b.get_bit(0), "a1 must not be set");
+        assert!(!b.get_bit(7), "h1 must not be set");
+    }
+
+    #[test]
+    fn between_a1_a8_file() {
+        let b = between(0, 56);
+        for rank in 1..7u8 {
+            assert!(b.get_bit(rank * 8), "a{} should be set", rank + 1);
+        }
+        assert!(!b.get_bit(0), "a1 must not be set");
+        assert!(!b.get_bit(56), "a8 must not be set");
+    }
+
+    #[test]
+    fn between_a1_h8_diagonal() {
+        let b = between(0, 63);
+        for i in 1..7u8 {
+            assert!(b.get_bit(i * 9), "sq {} should be set", i * 9);
+        }
+        assert!(!b.get_bit(0));
+        assert!(!b.get_bit(63));
+    }
+
+    #[test]
+    fn between_adjacent_is_zero() {
+        assert_eq!(between(0, 1).0, 0, "adjacent rank squares");
+        assert_eq!(between(0, 8).0, 0, "adjacent file squares");
+        assert_eq!(between(0, 9).0, 0, "adjacent diagonal squares");
+    }
+
+    #[test]
+    fn between_same_square_is_zero() {
+        assert_eq!(between(27, 27).0, 0);
+    }
+
+    #[test]
+    fn between_not_on_line_is_zero() {
+        assert_eq!(between(0, 10).0, 0, "a1 to c2 not on a line");
+        assert_eq!(between(0, 17).0, 0, "a1 to b3 not on a line");
+    }
+
+    #[test]
+    fn between_is_symmetric() {
+        for a in 0..64u8 {
+            for b in 0..64u8 {
+                assert_eq!(
+                    between(a, b).0,
+                    between(b, a).0,
+                    "between({a},{b}) != between({b},{a})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn between_a1_c1_single_square() {
+        let b = between(0, 2);
+        assert_eq!(b.0.count_ones(), 1);
+        assert!(
+            b.get_bit(1),
+            "b1 should be the only square between a1 and c1"
+        );
+    }
 
     #[test]
     fn legal_moves_king_in_check_must_resolve() {
@@ -783,7 +1016,11 @@ mod tests {
         place(&mut pos, Color::Black, PieceType::Rook, sq(0, 7));
         place(&mut pos, Color::Black, PieceType::Rook, sq(1, 7));
         let legal_list = legal_moves(&mut pos);
-        assert_eq!(legal_list.as_slice().len(), 0, "back-rank mate should have 0 legal moves");
+        assert_eq!(
+            legal_list.as_slice().len(),
+            0,
+            "back-rank mate should have 0 legal moves"
+        );
     }
 
     #[test]
@@ -793,6 +1030,10 @@ mod tests {
         place(&mut pos, Color::Black, PieceType::King, sq(2, 6));
         place(&mut pos, Color::Black, PieceType::Queen, sq(1, 5));
         let legal_list = legal_moves(&mut pos);
-        assert_eq!(legal_list.as_slice().len(), 0, "stalemate should have 0 legal moves");
+        assert_eq!(
+            legal_list.as_slice().len(),
+            0,
+            "stalemate should have 0 legal moves"
+        );
     }
 }

@@ -1,10 +1,10 @@
 use crate::{
-    eval::evaluate_for_white,
-    move_order::{move_score, update_killers_history},
-    movegen::{MagicTable, Move, MoveFlags, MoveGen, MoveList},
-    position::{Color, Position, UndoInfo},
-    pruning::{lmr::try_lmr, null_move::try_null_move},
-    tt::TranspositionTable,
+    board::position::{Color, Position},
+    eval::eval::evaluate_for_white,
+    movegen::move_order::{move_score, update_killers_history},
+    movegen::movegen::{MagicTable, Move, MoveGen, MoveList},
+    search::pruning::{lmr::try_lmr, null_move::try_null_move},
+    search::tt::TranspositionTable,
 };
 
 use std::{
@@ -175,7 +175,6 @@ pub fn best_move(
             .sort_by_key(|mv| -move_score(&position, mv, tt_move, 0, &ctx));
         let mut partial_result_mv = None;
         let mut highest_score = -1000000i32;
-        let mut legal_move_count = 0;
         // loop for aspiration window first small if fails big
         loop {
             let original_alpha = alpha;
@@ -191,8 +190,6 @@ pub fn best_move(
                 ) {
                     position.unmake_move(*mv, undo);
                     continue;
-                } else {
-                    legal_move_count += 1;
                 }
                 let score = -negamax(position, d - 1, 0, -beta, -alpha, &mut ctx);
 
