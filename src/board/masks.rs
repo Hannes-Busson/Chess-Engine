@@ -1,4 +1,4 @@
-use crate::bitboard::Bitboard;
+use crate::board::bitboard::Bitboard;
 use std::sync::OnceLock;
 
 // returns bitboards with file set to be ones
