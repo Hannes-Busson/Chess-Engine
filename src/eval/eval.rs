@@ -1,4 +1,4 @@
-use crate::position::Position;
+use crate::board::position::Position;
 
 pub fn evaluate_for_white(position: &Position) -> i32 {
     position.pst_score
